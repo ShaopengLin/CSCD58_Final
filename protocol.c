@@ -38,7 +38,7 @@ void create_ip_header(struct ip_header *header, uint32_t src_addr , uint32_t des
     header->ttl = 64;      /*default ttl set to 64*/
     header->protocol = protocol;
     header->saddr = src_addr;
-    header->daddr =-dest_addr;
+    header->daddr = dest_addr;
     /*get checksum*/
     header->checksum = ip_checksum(header, header->ihl * 4);
 }
