@@ -9,8 +9,8 @@
 static uint16_t global_ip_id = 0;
 
 struct ip_header {
-    uint8_t  ihl:4;
-    uint8_t  version:4; /*we are using IPV4 protocol*/
+    unsigned int  ihl:4;
+    unsigned int  version:4; /*we are using IPV4 protocol*/
     uint8_t  tos; /*type of service we use*/
     uint16_t len; /*length of the packet*/
     uint16_t id; 
