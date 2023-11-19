@@ -28,6 +28,8 @@ uint16_t ip_checksum(void *header, int len) {
 
 void create_ip_header(struct ip_header *header, uint32_t src_addr , uint32_t dest_addr, 
                         uint8_t protocol, uint16_t packet_len) {
+    header->ihl = 5;
+    header->version = 4;
     header->tos = 0;       
     header->len = htons(packet_len);
     header->id = htons(global_ip_id);
