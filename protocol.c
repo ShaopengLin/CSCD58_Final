@@ -1,7 +1,11 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <arpa/inet.h>
 #include <string.h>
 #include "protocol.h"
+
+/*this variable is used to make sure to assign unique id to each packet*/
+static uint16_t global_ip_id = 0;
 
 /*calculates the ip checksum for the packet*/
 uint16_t ip_checksum(void *header, int len) {
@@ -26,38 +30,41 @@ uint16_t ip_checksum(void *header, int len) {
     return htons(~checksum);
 }
 
-void create_ip_header(struct ip_header *header, uint32_t src_addr , uint32_t dest_addr, 
-                        uint8_t protocol, uint16_t packet_len) {
+void create_ip_header(struct ip_header *header, uint32_t src_addr, uint32_t dest_addr, 
+                      uint8_t protocol, uint16_t packet_len) {
     header->ihl = 5;
     header->version = 4;
     header->tos = 0;       
     header->len = htons(packet_len);
-    header->id = htons(global_ip_id);
-    global_ip_id++;
-    header->offset = 0;    /*default offset of the packet*/
-    header->ttl = 64;      /*default ttl set to 64*/
-    header->protocol = protocol;
+    header->id = htons(global_ip_id++);
+    header->offset = 0; // No fragment
+    header->ttl = 64; // Default TTL set to 64
+    header->protocol = protocol; // No need for byte order conversion
+    header->checksum = 0; // Initialize to 0 before checksum calculation
     header->saddr = src_addr;
     header->daddr = dest_addr;
-    /*get checksum*/
+
+    // Calculate checksum after filling all fields
     header->checksum = ip_checksum(header, header->ihl * 4);
 }
 
+
 void create_arp_header(struct arp_header *header, uint16_t operation, uint8_t *src_mac, uint32_t src_ip, 
-                        uint8_t *dest_mac, uint32_t dest_ip) {
-    header->hardware = htons(1);     /*set to ethernext as default*/
-    header->protocol = htons(0x0800); /*set to Ipv4*/
-    header->hlen = EthernetAddrLen;
-    header->plen = IpAddrLen;
-    header->operation = operation;
-    memcpy(header->sha, src_mac, sizeof(uint8_t)*EthernetAddrLen);
+                       uint8_t *dest_mac, uint32_t dest_ip) {
+    header->hardware = htons(1); // Ethernet as default
+    header->protocol = htons(0x0800); // IPv4 as default
+    header->hlen = EthernetAddrLen; // Length of MAC address
+    header->plen = IpAddrLen; // Length of IP address
+    header->operation = htons(operation);
+    memcpy(header->sha, src_mac, EthernetAddrLen);
     header->sip = src_ip;
-    memcpy(header->tha, dest_mac, sizeof(uint8_t)*EthernetAddrLen);
+    memcpy(header->tha, dest_mac, EthernetAddrLen);
     header->tip = dest_ip;
 }
 
+
 void create_eth_header(struct eth_header *header, uint8_t *src_mac, uint8_t *dest_mac, uint16_t type) {
-    memcpy(header->destination, dest_mac, sizeof(uint8_t)*EthernetAddrLen);
-    memcpy(header->source, src_mac, sizeof(uint8_t)*EthernetAddrLen);
-    header->type = type;
+    memcpy(header->destination, dest_mac, EthernetAddrLen);
+    memcpy(header->source, src_mac, EthernetAddrLen);
+    header->type = htons(type);
 }
