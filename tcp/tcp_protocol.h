@@ -1,10 +1,12 @@
+#include <arpa/inet.h>
 #include <endian.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifndef TCP_PROTOCOL_H
 #define TCP_PROTOCOL_H
 
-/* TODO: Macros for flags, attributes in hdr, timeout, etc*/
+/* TODO: Macros for timeout, etc*/
 
 struct tcp_hdr
 {
@@ -25,8 +27,8 @@ struct tcp_hdr
   uint8_t ece : 1;
   uint8_t cwr : 1;
 #elif BYTE_ORDER == BIG_ENDIAN
-  uint8_t doffset : 4;
-  uint8_t rsrvd : 4;
+  uint8_t doffset : 4; // Unused, set to 0
+  uint8_t rsrvd : 4;   // offset where data begins
   uint8_t cwr : 1;
   uint8_t ece : 1;
   uint8_t urg : 1;
@@ -54,5 +56,25 @@ struct tcp_pseudo_hdr
   uint16_t len; // length of tcp + data. Not including pseudo.
 } __attribute__ ((packed));
 typedef struct tcp_pseudo_hdr tcp_pseudo_hdr_t;
+
+#define FLAG_OFS 13
+#define CWR_FLAG (0 | (1U))
+#define ECE_FLAG (0 | (1U << 1))
+#define URG_FLAG (0 | (1U << 2))
+#define ACK_FLAG (0 | (1U << 3))
+#define PSH_FLAG (0 | (1U << 4))
+#define RST_FLAG (0 | (1U << 5))
+#define SYN_FLAG (0 | (1U << 6))
+#define FIN_FLAG (0 | (1U << 7))
+
+uint8_t *tcp_gen_packet (uint8_t *data, uint16_t len, uint32_t src_ip,
+                         uint32_t dst_ip, uint32_t src_port, uint16_t dst_port,
+                         uint32_t seq_num, uint32_t ack_num, uint8_t doffset,
+                         uint8_t flags, uint16_t window);
+
+void print_tcp_hdr (tcp_hdr_t *hdr);
+
+bool tcp_verify_packet (uint8_t *packet, uint16_t len, uint16_t tcp_off,
+                        uint32_t src_ip, uint32_t dst_ip);
 
 #endif /* -- TCP_PROTOCOL_H -- */
