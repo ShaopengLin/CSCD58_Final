@@ -4,7 +4,7 @@
 #include <string.h>
 
 uint16_t
-cksum (const void *_data, int len)
+tcp_cksum (const void *_data, int len)
 {
   const uint8_t *data = _data;
   uint32_t sum;
@@ -19,19 +19,18 @@ cksum (const void *_data, int len)
   return sum ? sum : 0xffff;
 }
 
-uint8_t *
-tcp_gen_packet (uint8_t *data, uint16_t len, uint32_t src_ip, uint32_t dst_ip,
-                uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
-                uint32_t ack_num, uint8_t doffset, uint8_t flags,
-                uint16_t window)
+void
+tcp_gen_packet (tcp_hdr_t *header, uint8_t *data, uint16_t len,
+                uint32_t src_ip, uint32_t dst_ip, uint32_t src_port,
+                uint16_t dst_port, uint32_t seq_num, uint32_t ack_num,
+                uint8_t flags, uint16_t window)
 {
-  tcp_hdr_t *header = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
   header->src_port = htons (src_port);
   header->des_port = htons (dst_port);
   header->seq_num = htonl (seq_num);
   header->ack_num = htonl (ack_num);
 
-  header->doffset = doffset;
+  header->doffset = 5;
   *(((uint8_t *)header) + FLAG_OFS) = flags;
 
   header->window = htons (window);
@@ -41,7 +40,7 @@ tcp_gen_packet (uint8_t *data, uint16_t len, uint32_t src_ip, uint32_t dst_ip,
   p_hdr.dst = dst_ip;
   p_hdr.zero = 0;
   p_hdr.pro = 6;
-  p_hdr.len = len + sizeof (tcp_hdr_t);
+  p_hdr.len = htons (len + sizeof (tcp_hdr_t));
 
   uint8_t *cksum_buf = (uint8_t *)calloc (
       1, sizeof (tcp_hdr_t) + sizeof (tcp_pseudo_hdr_t) + len);
@@ -49,11 +48,10 @@ tcp_gen_packet (uint8_t *data, uint16_t len, uint32_t src_ip, uint32_t dst_ip,
   memcpy (cksum_buf + sizeof (tcp_pseudo_hdr_t), header, sizeof (tcp_hdr_t));
   memcpy (cksum_buf + sizeof (tcp_pseudo_hdr_t) + sizeof (tcp_hdr_t), data,
           len);
-
-  header->cksum = cksum (cksum_buf,
-                         sizeof (tcp_hdr_t) + sizeof (tcp_pseudo_hdr_t) + len);
+  header->cksum = 0;
+  header->cksum = tcp_cksum (cksum_buf, sizeof (tcp_hdr_t)
+                                            + sizeof (tcp_pseudo_hdr_t) + len);
   free (cksum_buf);
-  return (uint8_t *)header;
 }
 
 void
@@ -86,4 +84,23 @@ tcp_verify_packet (uint8_t *packet, uint16_t len, uint16_t tcp_off,
                    uint32_t src_ip, uint32_t dst_ip)
 {
   return true;
+}
+
+/* TODO: Generate SYN, SYNACK, packets, etc*/
+void
+tcp_gen_syn (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
+             uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
+             uint16_t window)
+{
+  tcp_gen_packet (header, 0, 0, src_ip, dst_ip, src_port, dst_port, seq_num, 0,
+                  (uint8_t)(SYN_FLAG), window);
+}
+
+void
+tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
+             uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
+             uint16_t window)
+{
+  tcp_gen_packet (header, 0, 0, src_ip, dst_ip, src_port, dst_port, seq_num, 0,
+                  (uint8_t)(ACK_FLAG), window);
 }
