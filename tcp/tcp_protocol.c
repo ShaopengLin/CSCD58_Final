@@ -25,6 +25,7 @@ tcp_gen_packet (tcp_hdr_t *header, uint8_t *data, uint16_t len,
                 uint16_t dst_port, uint32_t seq_num, uint32_t ack_num,
                 uint8_t flags, uint16_t window)
 {
+  memset (header, 0, sizeof (tcp_hdr_t));
   header->src_port = htons (src_port);
   header->des_port = htons (dst_port);
   header->seq_num = htonl (seq_num);

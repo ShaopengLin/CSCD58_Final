@@ -13,6 +13,7 @@
 #include <string.h>       //memset
 #include <sys/socket.h>   //for socket ofcourse
 #include <unistd.h>       // sleep()
+#define PORT 4450
 /*
         96 bit (12 bytes) pseudo header needed for tcp header checksum
    calculation
@@ -127,35 +128,6 @@ recving (int s)
 int
 main (void)
 {
-  struct sockaddr_in addr;
-  int fd;
-
-  fd = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (fd == -1)
-    {
-      printf ("Error opening socket\n");
-      return -1;
-    }
-
-  addr.sin_port = htons (1234);
-  addr.sin_addr.s_addr = 0;
-  addr.sin_addr.s_addr = INADDR_ANY;
-  addr.sin_family = AF_INET;
-
-  if (bind (fd, (struct sockaddr *)&addr, sizeof (struct sockaddr_in)) == -1)
-    {
-      printf ("Error binding socket\n");
-      return -1;
-    }
-
-  printf ("Successfully bound to port %u\n", 1234);
-
-  // Now server is ready to listen and verification
-  if ((listen (fd, 5)) != 0)
-    {
-      printf ("Listen failed...\n");
-      exit (0);
-    }
   // Create a raw socket
   int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
@@ -187,7 +159,7 @@ main (void)
   // some address resolution
   strcpy (source_ip, "10.0.0.1");
   sin.sin_family = AF_INET;
-  sin.sin_port = htons (4450);
+  sin.sin_port = htons (PORT);
   sin.sin_addr.s_addr = inet_addr ("10.0.0.2");
 
   // Fill in the IP Header
@@ -207,7 +179,7 @@ main (void)
   iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
   // TCP Header
-  tcp_gen_syn (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, 4450, 0,
+  tcp_gen_syn (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, PORT, 0,
                5840);
 
   // IP_HDRINCL to tell the kernel that headers are included in the packet
@@ -237,7 +209,7 @@ main (void)
   tcp_hdr_t synack_hdr = recving (s);
   print_tcp_hdr (&synack_hdr);
   memset (tcph, 0, sizeof (tcp_hdr_t));
-  tcp_gen_ack (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, 4450, 1,
+  tcp_gen_ack (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, PORT, 1,
                ntohl (synack_hdr.seq_num) + 1, 5840);
   print_tcp_hdr (tcph);
 
@@ -256,31 +228,33 @@ main (void)
     {
       printf ("Packet Send. Length : %d \n", iph->tot_len);
     }
-  sleep (5);
+  sleep (1);
 
   // Data part
-  // data = datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t);
-  // strcpy (data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+  data = datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t);
+  strcpy (data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
-  // iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + strlen (data);
-  // iph->check = 0;
-  // iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+  iph->id = htonl (54323); // Id of this packet
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + strlen (data);
+  iph->check = 0;
+  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
-  // tcp_gen_packet (tcph, (uint8_t *)data, strlen (data), inet_addr
-  // (source_ip),
-  //                 sin.sin_addr.s_addr, 1234, 4449, 1 + strlen (data), 0, 0,
-  //                 5840);
-  // print_tcp_hdr (tcph);
-  // if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-  //             sizeof (sin))
-  //     < 0)
-  //   {
-  //     perror ("sendto failed");
-  //   }
-  // // Data send successfully
-  // else
-  //   {
-  //     printf ("Packet Send. Length : %d \n", iph->tot_len);
-  //   }
+  tcp_gen_packet (tcph, (uint8_t *)data, strlen (data), inet_addr (source_ip),
+                  sin.sin_addr.s_addr, 1234, PORT, 1,
+                  ntohl (synack_hdr.seq_num) + 1,
+                  (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
+  print_tcp_hdr (tcph);
+  if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+              sizeof (sin))
+      < 0)
+    {
+      perror ("sendto failed");
+    }
+  // Data send successfully
+  else
+    {
+      printf ("Packet Send. Length : %d \n", iph->tot_len);
+    }
+  sleep (1);
   return 0;
 }
