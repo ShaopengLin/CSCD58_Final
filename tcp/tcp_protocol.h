@@ -74,6 +74,9 @@ void tcp_gen_packet (tcp_hdr_t *header, uint8_t *data, uint16_t len,
 void tcp_gen_syn (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
                   uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
                   uint16_t window);
+void tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
+                  uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
+                  uint32_t ack_num, uint16_t window);
 void print_tcp_hdr (tcp_hdr_t *hdr);
 
 bool tcp_verify_packet (uint8_t *packet, uint16_t len, uint16_t tcp_off,
