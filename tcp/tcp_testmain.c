@@ -13,7 +13,7 @@
 #include <string.h>       //memset
 #include <sys/socket.h>   //for socket ofcourse
 #include <unistd.h>       // sleep()
-#define PORT 4450
+#define PORT 4453
 /*
         96 bit (12 bytes) pseudo header needed for tcp header checksum
    calculation
@@ -241,8 +241,7 @@ main (void)
 
   tcp_gen_packet (tcph, (uint8_t *)data, strlen (data), inet_addr (source_ip),
                   sin.sin_addr.s_addr, 1234, PORT, 1,
-                  ntohl (synack_hdr.seq_num) + 1,
-                  (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
+                  ntohl (synack_hdr.seq_num) + 1, (uint8_t)(ACK_FLAG), 5840);
   print_tcp_hdr (tcph);
   if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
               sizeof (sin))
