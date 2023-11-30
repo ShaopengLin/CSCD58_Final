@@ -13,7 +13,7 @@
 #include <string.h>       //memset
 #include <sys/socket.h>   //for socket ofcourse
 #include <unistd.h>       // sleep()
-#define PORT 4453
+#define PORT 4456
 /*
         96 bit (12 bytes) pseudo header needed for tcp header checksum
    calculation
@@ -254,6 +254,50 @@ main (void)
     {
       printf ("Packet Send. Length : %d \n", iph->tot_len);
     }
-  sleep (1);
+
+  tcp_hdr_t dataack_hdr = recving (s);
+  iph->id = htonl (54324); // Id of this packet
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t);
+  iph->check = 0;
+  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+
+  tcp_gen_packet (tcph, 0, 0, inet_addr (source_ip), sin.sin_addr.s_addr, 1234,
+                  PORT, ntohl (dataack_hdr.ack_num),
+                  ntohl (dataack_hdr.seq_num), (uint8_t)(FIN_FLAG | ACK_FLAG),
+                  5840);
+  print_tcp_hdr (tcph);
+  if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+              sizeof (sin))
+      < 0)
+    {
+      perror ("sendto failed");
+    }
+  // Data send successfully
+  else
+    {
+      printf ("Packet Send. Length : %d \n", iph->tot_len);
+    }
+
+  tcp_hdr_t finack_hdr = recving (s);
+  iph->id = htonl (54325); // Id of this packet
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t);
+  iph->check = 0;
+  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+
+  tcp_gen_packet (tcph, 0, 0, inet_addr (source_ip), sin.sin_addr.s_addr, 1234,
+                  PORT, ntohl (finack_hdr.ack_num),
+                  ntohl (finack_hdr.seq_num) + 1, (uint8_t)(ACK_FLAG), 5840);
+  print_tcp_hdr (tcph);
+  if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+              sizeof (sin))
+      < 0)
+    {
+      perror ("sendto failed");
+    }
+  // Data send successfully
+  else
+    {
+      printf ("Packet Send. Length : %d \n", iph->tot_len);
+    }
   return 0;
 }
