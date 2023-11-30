@@ -58,24 +58,24 @@ void
 print_tcp_hdr (tcp_hdr_t *hdr)
 {
   printf ("TCP Header :\n");
-  printf ("\t Source Port : %d\n", ntohs (hdr->src_port));
-  printf ("\t Destination Port : %d\n", ntohs (hdr->des_port));
-  printf ("\t Sequence Number : %d\n", ntohl (hdr->seq_num));
-  printf ("\t Acknowledgment Number : %d\n", ntohl (hdr->ack_num));
-  printf ("\t Reserved : %d\n", hdr->rsrvd);
-  printf ("\t Data Offset : %d\n", hdr->doffset);
+  printf ("\t Source Port : %u\n", ntohs (hdr->src_port));
+  printf ("\t Destination Port : %u\n", ntohs (hdr->des_port));
+  printf ("\t Sequence Number : %u\n", ntohl (hdr->seq_num));
+  printf ("\t Acknowledgment Number : %u\n", ntohl (hdr->ack_num));
+  printf ("\t Reserved : %u\n", hdr->rsrvd);
+  printf ("\t Data Offset : %u\n", hdr->doffset);
   printf ("\t Flags :\n");
-  printf ("\t\t FIN : %d\n", hdr->fin);
-  printf ("\t\t SYN : %d\n", hdr->syn);
-  printf ("\t\t RST : %d\n", hdr->rst);
-  printf ("\t\t PSH : %d\n", hdr->psh);
-  printf ("\t\t ACK : %d\n", hdr->ack);
-  printf ("\t\t URG : %d\n", hdr->urg);
-  printf ("\t\t ECE : %d\n", hdr->ece);
-  printf ("\t\t CWR : %d\n", hdr->cwr);
-  printf ("\t Window : %d\n", ntohs (hdr->window));
-  printf ("\t Checksum : %d\n", ntohs (hdr->cksum));
-  printf ("\t Urgent Pointer : %d\n", ntohs (hdr->urgptr));
+  printf ("\t\t FIN : %u\n", hdr->fin);
+  printf ("\t\t SYN : %u\n", hdr->syn);
+  printf ("\t\t RST : %u\n", hdr->rst);
+  printf ("\t\t PSH : %u\n", hdr->psh);
+  printf ("\t\t ACK : %u\n", hdr->ack);
+  printf ("\t\t URG : %u\n", hdr->urg);
+  printf ("\t\t ECE : %u\n", hdr->ece);
+  printf ("\t\t CWR : %u\n", hdr->cwr);
+  printf ("\t Window : %u\n", ntohs (hdr->window));
+  printf ("\t Checksum : %u\n", ntohs (hdr->cksum));
+  printf ("\t Urgent Pointer : %u\n", ntohs (hdr->urgptr));
 }
 
 /* TODO: Method to verify tcp header */
@@ -99,8 +99,8 @@ tcp_gen_syn (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
 void
 tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
              uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
-             uint16_t window)
+             uint32_t ack_num, uint16_t window)
 {
-  tcp_gen_packet (header, 0, 0, src_ip, dst_ip, src_port, dst_port, seq_num, 0,
-                  (uint8_t)(ACK_FLAG), window);
+  tcp_gen_packet (header, 0, 0, src_ip, dst_ip, src_port, dst_port, seq_num,
+                  ack_num, (uint8_t)(ACK_FLAG), window);
 }

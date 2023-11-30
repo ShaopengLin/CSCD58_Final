@@ -2,16 +2,17 @@
         Raw TCP packets
 */
 #include "tcp_protocol.h"
-#include <arpa/inet.h>   // inet_addr
-#include <errno.h>       //For errno - the error number
-#include <netinet/ip.h>  //Provides declarations for ip header
-#include <netinet/tcp.h> //Provides declarations for tcp header
-#include <stdio.h>       //for printf
-#include <stdlib.h>      //for exit(0);
-#include <string.h>      //memset
-#include <sys/socket.h>  //for socket ofcourse
-#include <unistd.h>      // sleep()
-
+#include <arpa/inet.h> // inet_addr
+#include <errno.h>     //For errno - the error number
+#include <linux/if_packet.h>
+#include <net/ethernet.h> // the L2 protocols
+#include <netinet/ip.h>   // the IP protocol
+#include <netinet/tcp.h>  //Provides declarations for tcp header
+#include <stdio.h>        //for printf
+#include <stdlib.h>       //for exit(0);
+#include <string.h>       //memset
+#include <sys/socket.h>   //for socket ofcourse
+#include <unistd.h>       // sleep()
 /*
         96 bit (12 bytes) pseudo header needed for tcp header checksum
    calculation
@@ -25,39 +26,136 @@ struct pseudo_header
   u_int16_t tcp_length;
 };
 
-/*
-        Generic checksum calculation function
-*/
-unsigned short
-csum (unsigned short *ptr, int nbytes)
+void
+open ()
 {
-  register long sum;
-  unsigned short oddbyte;
-  register short answer;
+  struct sockaddr_in addr;
+  int fd;
 
-  sum = 0;
-  while (nbytes > 1)
+  fd = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (fd == -1)
     {
-      sum += *ptr++;
-      nbytes -= 2;
-    }
-  if (nbytes == 1)
-    {
-      oddbyte = 0;
-      *((u_char *)&oddbyte) = *(u_char *)ptr;
-      sum += oddbyte;
+      printf ("Error opening socket\n");
+      return -1;
     }
 
-  sum = (sum >> 16) + (sum & 0xffff);
-  sum = sum + (sum >> 16);
-  answer = (short)~sum;
+  addr.sin_port = htons (1234);
+  addr.sin_addr.s_addr = 0;
+  addr.sin_addr.s_addr = INADDR_ANY;
+  addr.sin_family = AF_INET;
 
-  return (answer);
+  if (bind (fd, (struct sockaddr *)&addr, sizeof (struct sockaddr_in)) == -1)
+    {
+      printf ("Error binding socket\n");
+      return -1;
+    }
+
+  printf ("Successfully bound to port %u\n", 1234);
+
+  // Now server is ready to listen and verification
+  if ((listen (fd, 5)) != 0)
+    {
+      printf ("Listen failed...\n");
+      exit (0);
+    }
+}
+tcp_hdr_t
+recving (int s)
+{
+  int sock_r;
+  unsigned char *buffer = (unsigned char *)malloc (65536);
+  memset (buffer, 0, 65536);
+  struct sockaddr_ll saddr;
+  int saddr_len = sizeof (saddr);
+
+  sock_r = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
+  if (sock_r < 0)
+    {
+      perror ("Socket Error");
+      exit (129);
+    }
+
+  while (1)
+    {
+      int buflen
+          = recvfrom (sock_r, buffer, 65536, 0, (struct sockaddr *)&saddr,
+                      (socklen_t *)&saddr_len);
+      if (buflen < 0)
+        {
+          printf ("Error in reading recvfrom function\n");
+          exit (129);
+        }
+      if (saddr.sll_pkttype == PACKET_HOST)
+        {
+          struct ethhdr *eth_header = (struct ethhdr *)buffer;
+          // Check EtherType
+          if (ntohs (eth_header->h_proto) == ETH_P_ARP)
+            {
+              printf ("Received ARP packet\n");
+            }
+          else if (ntohs (eth_header->h_proto) == ETH_P_IP)
+            {
+              struct iphdr *ip_header
+                  = (struct iphdr *)(buffer + sizeof (struct ethhdr));
+              if (ip_header->protocol == IPPROTO_ICMP)
+                {
+                  printf ("Received ICMP packet\n");
+                  struct in_addr add;
+                  add.s_addr = ip_header->daddr;
+                  printf ("DST IP: %s\n", inet_ntoa (add));
+                  // Further processing for ICMP packet
+                  // print_headers(buffer);
+                }
+              else if (ip_header->protocol == IPPROTO_TCP)
+                {
+                  tcp_hdr_t *tcp_header
+                      = (tcp_hdr_t *)(buffer + sizeof (struct ethhdr)
+                                      + sizeof (struct iphdr));
+                  if (ntohs (tcp_header->des_port) == 1234)
+                    {
+                      print_tcp_hdr (tcp_header);
+                      tcp_hdr_t ret = *tcp_header;
+                      free (buffer);
+                      return ret;
+                    }
+                }
+            }
+        }
+    }
 }
 
 int
 main (void)
 {
+  struct sockaddr_in addr;
+  int fd;
+
+  fd = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (fd == -1)
+    {
+      printf ("Error opening socket\n");
+      return -1;
+    }
+
+  addr.sin_port = htons (1234);
+  addr.sin_addr.s_addr = 0;
+  addr.sin_addr.s_addr = INADDR_ANY;
+  addr.sin_family = AF_INET;
+
+  if (bind (fd, (struct sockaddr *)&addr, sizeof (struct sockaddr_in)) == -1)
+    {
+      printf ("Error binding socket\n");
+      return -1;
+    }
+
+  printf ("Successfully bound to port %u\n", 1234);
+
+  // Now server is ready to listen and verification
+  if ((listen (fd, 5)) != 0)
+    {
+      printf ("Listen failed...\n");
+      exit (0);
+    }
   // Create a raw socket
   int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
@@ -70,10 +168,10 @@ main (void)
 
   // Datagram to represent the packet
   char datagram[4096], source_ip[32], *data, *pseudogram;
-
+  char buffer[5804];
   // zero out the packet buffer
   memset (datagram, 0, 4096);
-
+  memset (buffer, 0, 5804);
   // IP header
   struct iphdr *iph = (struct iphdr *)datagram;
 
@@ -89,7 +187,7 @@ main (void)
   // some address resolution
   strcpy (source_ip, "10.0.0.1");
   sin.sin_family = AF_INET;
-  sin.sin_port = htons (4449);
+  sin.sin_port = htons (4450);
   sin.sin_addr.s_addr = inet_addr ("10.0.0.2");
 
   // Fill in the IP Header
@@ -106,10 +204,10 @@ main (void)
   iph->daddr = sin.sin_addr.s_addr;
 
   // Ip checksum
-  iph->check = csum ((unsigned short *)datagram, iph->tot_len);
+  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
   // TCP Header
-  tcp_gen_syn (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, 4449, 0,
+  tcp_gen_syn (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, 4450, 0,
                5840);
 
   // IP_HDRINCL to tell the kernel that headers are included in the packet
@@ -136,6 +234,53 @@ main (void)
       printf ("Packet Send. Length : %d \n", iph->tot_len);
     }
   // sleep for 1 seconds
-  sleep (1);
+  tcp_hdr_t synack_hdr = recving (s);
+  print_tcp_hdr (&synack_hdr);
+  memset (tcph, 0, sizeof (tcp_hdr_t));
+  tcp_gen_ack (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, 4450, 1,
+               ntohl (synack_hdr.seq_num) + 1, 5840);
+  print_tcp_hdr (tcph);
+
+  iph->id = htonl (54322); // Id of this packet
+  iph->check = 0;
+  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+
+  if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+              sizeof (sin))
+      < 0)
+    {
+      perror ("sendto failed");
+    }
+  // Data send successfully
+  else
+    {
+      printf ("Packet Send. Length : %d \n", iph->tot_len);
+    }
+  sleep (5);
+
+  // Data part
+  // data = datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t);
+  // strcpy (data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+
+  // iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + strlen (data);
+  // iph->check = 0;
+  // iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+
+  // tcp_gen_packet (tcph, (uint8_t *)data, strlen (data), inet_addr
+  // (source_ip),
+  //                 sin.sin_addr.s_addr, 1234, 4449, 1 + strlen (data), 0, 0,
+  //                 5840);
+  // print_tcp_hdr (tcph);
+  // if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+  //             sizeof (sin))
+  //     < 0)
+  //   {
+  //     perror ("sendto failed");
+  //   }
+  // // Data send successfully
+  // else
+  //   {
+  //     printf ("Packet Send. Length : %d \n", iph->tot_len);
+  //   }
   return 0;
 }
