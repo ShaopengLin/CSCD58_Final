@@ -1,6 +1,7 @@
 /*
         Raw TCP packets
 */
+#include "mt19937ar.h"
 #include "tcp_protocol.h"
 #include <arpa/inet.h> // inet_addr
 #include <errno.h>     //For errno - the error number
@@ -13,7 +14,7 @@
 #include <string.h>       //memset
 #include <sys/socket.h>   //for socket ofcourse
 #include <unistd.h>       // sleep()
-#define PORT 4456
+#define PORT 4462
 /*
         96 bit (12 bytes) pseudo header needed for tcp header checksum
    calculation
@@ -128,6 +129,8 @@ recving (int s)
 int
 main (void)
 {
+  init_genrand (0);
+  uint32_t init_seq = genrand_int32 ();
   // Create a raw socket
   int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
@@ -179,8 +182,8 @@ main (void)
   iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
   // TCP Header
-  tcp_gen_syn (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, PORT, 0,
-               5840);
+  tcp_gen_syn (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, PORT,
+               init_seq, 5840);
 
   // IP_HDRINCL to tell the kernel that headers are included in the packet
   int one = 1;
@@ -209,8 +212,8 @@ main (void)
   tcp_hdr_t synack_hdr = recving (s);
   print_tcp_hdr (&synack_hdr);
   memset (tcph, 0, sizeof (tcp_hdr_t));
-  tcp_gen_ack (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, PORT, 1,
-               ntohl (synack_hdr.seq_num) + 1, 5840);
+  tcp_gen_ack (tcph, inet_addr (source_ip), sin.sin_addr.s_addr, 1234, PORT,
+               ++init_seq, ntohl (synack_hdr.seq_num) + 1, 5840);
   print_tcp_hdr (tcph);
 
   iph->id = htonl (54322); // Id of this packet
@@ -240,7 +243,7 @@ main (void)
   iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
   tcp_gen_packet (tcph, (uint8_t *)data, strlen (data), inet_addr (source_ip),
-                  sin.sin_addr.s_addr, 1234, PORT, 1,
+                  sin.sin_addr.s_addr, 1234, PORT, init_seq,
                   ntohl (synack_hdr.seq_num) + 1, (uint8_t)(ACK_FLAG), 5840);
   print_tcp_hdr (tcph);
   if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
@@ -261,10 +264,10 @@ main (void)
   iph->check = 0;
   iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
+  init_seq += 26;
   tcp_gen_packet (tcph, 0, 0, inet_addr (source_ip), sin.sin_addr.s_addr, 1234,
-                  PORT, ntohl (dataack_hdr.ack_num),
-                  ntohl (dataack_hdr.seq_num), (uint8_t)(FIN_FLAG | ACK_FLAG),
-                  5840);
+                  PORT, init_seq, ntohl (dataack_hdr.seq_num),
+                  (uint8_t)(FIN_FLAG | ACK_FLAG), 5840);
   print_tcp_hdr (tcph);
   if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
               sizeof (sin))
@@ -284,9 +287,10 @@ main (void)
   iph->check = 0;
   iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
+  printf ("%u, %u\n", init_seq, ntohl (finack_hdr.ack_num));
   tcp_gen_packet (tcph, 0, 0, inet_addr (source_ip), sin.sin_addr.s_addr, 1234,
-                  PORT, ntohl (finack_hdr.ack_num),
-                  ntohl (finack_hdr.seq_num) + 1, (uint8_t)(ACK_FLAG), 5840);
+                  PORT, ++init_seq, ntohl (finack_hdr.seq_num) + 1,
+                  (uint8_t)(ACK_FLAG), 5840);
   print_tcp_hdr (tcph);
   if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
               sizeof (sin))
