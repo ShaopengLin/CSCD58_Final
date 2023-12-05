@@ -82,4 +82,5 @@ void print_tcp_hdr (tcp_hdr_t *hdr);
 bool tcp_verify_packet (uint8_t *packet, uint16_t len, uint16_t tcp_off,
                         uint32_t src_ip, uint32_t dst_ip);
 uint16_t tcp_cksum (const void *_data, int len);
+uint8_t tcp_cmp_flag (tcp_hdr_t *hdr1, tcp_hdr_t *hdr2);
 #endif /* -- TCP_PROTOCOL_H -- */
