@@ -58,23 +58,28 @@ struct tcp_pseudo_hdr
 typedef struct tcp_pseudo_hdr tcp_pseudo_hdr_t;
 
 #define FLAG_OFS 13
-#define CWR_FLAG (0 | (1U))
-#define ECE_FLAG (0 | (1U << 1))
-#define URG_FLAG (0 | (1U << 2))
-#define ACK_FLAG (0 | (1U << 3))
-#define PSH_FLAG (0 | (1U << 4))
-#define RST_FLAG (0 | (1U << 5))
-#define SYN_FLAG (0 | (1U << 6))
-#define FIN_FLAG (0 | (1U << 7))
+#define CWR_FLAG (0 | (1U << 7))
+#define ECE_FLAG (0 | (1U << 6))
+#define URG_FLAG (0 | (1U << 5))
+#define ACK_FLAG (0 | (1U << 4))
+#define PSH_FLAG (0 | (1U << 3))
+#define RST_FLAG (0 | (1U << 2))
+#define SYN_FLAG (0 | (1U << 1))
+#define FIN_FLAG (0 | (1U))
 
-uint8_t *tcp_gen_packet (uint8_t *data, uint16_t len, uint32_t src_ip,
-                         uint32_t dst_ip, uint32_t src_port, uint16_t dst_port,
-                         uint32_t seq_num, uint32_t ack_num, uint8_t doffset,
-                         uint8_t flags, uint16_t window);
-
+void tcp_gen_packet (tcp_hdr_t *header, uint8_t *data, uint16_t len,
+                     uint32_t src_ip, uint32_t dst_ip, uint32_t src_port,
+                     uint16_t dst_port, uint32_t seq_num, uint32_t ack_num,
+                     uint8_t flags, uint16_t window);
+void tcp_gen_syn (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
+                  uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
+                  uint16_t window);
+void tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
+                  uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
+                  uint32_t ack_num, uint16_t window);
 void print_tcp_hdr (tcp_hdr_t *hdr);
 
 bool tcp_verify_packet (uint8_t *packet, uint16_t len, uint16_t tcp_off,
                         uint32_t src_ip, uint32_t dst_ip);
-
+uint16_t tcp_cksum (const void *_data, int len);
 #endif /* -- TCP_PROTOCOL_H -- */
