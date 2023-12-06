@@ -45,10 +45,14 @@ tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag)
           if (tcp_cmp_flag (inq_e->hdr, ckq_e->hdr)
               && inq_e->hdr->ack_num == ckq_e->hdr->ack_num)
             {
+              tcp_hdr_t *ret = inq_e->hdr;
               TAILQ_REMOVE (&tcp_inq, inq_e, entry);
               TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
+              free (ckq_e->hdr);
+              free (inq_e);
+              free (ckq_e);
               pthread_mutex_unlock (&inq_lock);
-              return inq_e->hdr;
+              return ret;
             }
         }
 
@@ -105,12 +109,13 @@ tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin)
 
   /* Recieve TCP SYN ACK */
   SEQNUM++;
-  tcp_hdr_t synack_hdr = *(tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
-                                            (uint8_t)(SYN_FLAG | ACK_FLAG)));
-
+  tcp_hdr_t *synack_hdr = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
+                                           (uint8_t)(SYN_FLAG | ACK_FLAG));
+  uint32_t ack_num = ntohl (synack_hdr->seq_num) + 1;
+  free (synack_hdr);
   /* Send TCP ACKs */
   tcp_gen_ack (tcph, src_ip, sin.sin_addr.s_addr, 1234, dst_port, SEQNUM,
-               ntohl (synack_hdr.seq_num) + 1, 5840);
+               ack_num, 5840);
 
   if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
               sizeof (sin))
@@ -118,7 +123,79 @@ tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin)
     {
       exit (-1);
     }
-  return ntohl (synack_hdr.seq_num) + 1;
+  return ack_num;
+}
+
+uint32_t
+tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
+                   uint32_t ack_num, uint32_t num_byte)
+{
+  uint32_t quotient = num_byte / 1000;
+  uint32_t remainder = num_byte % 1000;
+
+  char datagram[4096];
+  memset (datagram, 0, 4096);
+  uint8_t *data
+      = (uint8_t *)(datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t));
+  strcpy ((char *)data, "A");
+  struct iphdr *iph = (struct iphdr *)datagram;
+  uint16_t dst_port = ntohs (sin.sin_port);
+  // TCP header
+  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram + sizeof (struct iphdr));
+
+  iph->ihl = 5;
+  iph->version = 4;
+  iph->tos = 0;
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + 1000;
+  iph->id = htonl (54321); // Id of this packet
+  iph->frag_off = 0;
+  iph->ttl = 255;
+  iph->protocol = IPPROTO_TCP;
+  iph->check = 0;      // Set to 0 before calculating checksum
+  iph->saddr = src_ip; // Spoof the source ip address
+  iph->daddr = sin.sin_addr.s_addr;
+
+  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
+
+  while (quotient != 0)
+    {
+      tcp_gen_packet (tcph, (uint8_t *)data, 1000, src_ip, sin.sin_addr.s_addr,
+                      1234, dst_port, SEQNUM, ack_num,
+                      (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
+      if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+                  sizeof (sin))
+          < 0)
+        {
+          exit (-1);
+        }
+      SEQNUM += 1000;
+      tcp_hdr_t *dataack_hdr = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
+                                                (uint8_t)(ACK_FLAG));
+      ack_num = ntohl (dataack_hdr->seq_num);
+      free (dataack_hdr);
+      quotient--;
+    }
+
+  if (remainder == 0)
+    return ack_num;
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + remainder;
+  iph->check = 0;
+  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
+  tcp_gen_packet (tcph, (uint8_t *)data, remainder, src_ip,
+                  sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
+                  (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
+  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+              sizeof (sin))
+      < 0)
+    {
+      exit (-1);
+    }
+  SEQNUM += remainder;
+  tcp_hdr_t *dataack_hdr
+      = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO, (uint8_t)(ACK_FLAG));
+  ack_num = ntohl (dataack_hdr->seq_num);
+  free (dataack_hdr);
+  return ack_num;
 }
 
 void
@@ -159,13 +236,13 @@ tcp_teardown (int socket, in_addr_t src_ip, struct sockaddr_in sin,
 
   /* Recieve TCP FIN ACK */
   SEQNUM++;
-  tcp_hdr_t finack_hdr = *(tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
-                                            (uint8_t)(FIN_FLAG | ACK_FLAG)));
-
+  tcp_hdr_t *finack_hdr = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
+                                           (uint8_t)(FIN_FLAG | ACK_FLAG));
+  ack_num = ntohl (finack_hdr->seq_num) + 1;
+  free (finack_hdr);
   /* Send TCP ACK */
   tcp_gen_packet (tcph, 0, 0, src_ip, sin.sin_addr.s_addr, 1234, dst_port,
-                  SEQNUM, ntohl (finack_hdr.seq_num) + 1, (uint8_t)(ACK_FLAG),
-                  5840);
+                  SEQNUM, ack_num, (uint8_t)(ACK_FLAG), 5840);
 
   if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
               sizeof (sin))
