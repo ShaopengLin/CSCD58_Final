@@ -105,3 +105,9 @@ tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
   tcp_gen_packet (header, 0, 0, src_ip, dst_ip, src_port, dst_port, seq_num,
                   ack_num, (uint8_t)(ACK_FLAG), window);
 }
+
+uint8_t
+tcp_cmp_flag (tcp_hdr_t *hdr1, tcp_hdr_t *hdr2)
+{
+  return *(((uint8_t *)hdr1) + FLAG_OFS) == *(((uint8_t *)hdr2) + FLAG_OFS);
+}
