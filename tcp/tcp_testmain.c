@@ -68,6 +68,7 @@ recv_func ()
                 }
             }
         }
+      tcp_check_timeout ();
     }
 }
 
@@ -80,8 +81,11 @@ main (int argc, char **argv)
   const uint32_t num_bytes = atoi (argv[2]);
   TAILQ_INIT (&tcp_inq);
   TAILQ_INIT (&tcp_ckq);
-  pthread_t ptid;
-  if (pthread_create (&ptid, NULL, &recv_func, NULL) != 0)
+  pthread_t recv_tid;
+  pthread_t timer_tid;
+  if (pthread_create (&recv_tid, NULL, &recv_func, NULL) != 0)
+    exit (-1);
+  if (pthread_create (&timer_tid, NULL, &tcp_check_timeout, NULL) != 0)
     exit (-1);
 
   if (pthread_mutex_init (&inq_lock, NULL) != 0)

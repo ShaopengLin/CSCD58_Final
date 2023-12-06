@@ -5,6 +5,25 @@
 #include <stdlib.h>
 #include <string.h>
 uint32_t SEQNUM;
+
+void *
+tcp_check_timeout ()
+{
+  tcp_check_entry_t *ckq_e = NULL;
+  pthread_mutex_lock (&inq_lock);
+
+  TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
+  {
+    if (ckq_e->timeout <= time (0))
+      {
+        pthread_cond_signal (&inq_cond);
+        return NULL;
+      }
+  }
+  pthread_mutex_unlock (&inq_lock);
+  return NULL;
+}
+
 void
 handle_tcp (tcp_hdr_t *hdr)
 {
