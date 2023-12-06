@@ -86,6 +86,8 @@ main (int argc, char **argv)
 
   if (pthread_mutex_init (&inq_lock, NULL) != 0)
     exit (-1);
+  if (pthread_cond_init (&inq_cond, NULL) != 0)
+    exit (-1);
   // Create a raw socket
   int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
   if (s == -1)
@@ -119,39 +121,6 @@ main (int argc, char **argv)
   ack_num
       = tcp_stop_and_wait (s, inet_addr (source_ip), sin, ack_num, num_bytes);
   tcp_teardown (s, inet_addr (source_ip), sin, ack_num);
-  //  Data part
-  //  data = datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t);
-  //  strcpy (data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-
-  // iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + strlen (data);
-  // iph->check = 0;
-  // iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
-
-  // tcp_gen_packet (tcph, (uint8_t *)data, strlen (data), inet_addr
-  // (source_ip),
-  //                 sin.sin_addr.s_addr, 1234, PORT, init_seq,
-  //                 ntohl (synack_hdr.seq_num) + 1, (uint8_t)(ACK_FLAG),
-  //                 5840);
-  // print_tcp_hdr (tcph);
-  // if (sendto (s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-  //             sizeof (sin))
-  //     < 0)
-  //   {
-  //     perror ("sendto failed");
-  //   }
-  // // Data send successfully
-  // else
-  //   {
-  //     printf ("Packet Send. Length : %d \n", iph->tot_len);
-  //   }
-  // init_seq += 26;
-  // tcp_hdr_t dataack_hdr = *(
-  //     tcp_wait_packet (init_seq, time (0) + DEFAULT_RTO,
-  //     (uint8_t)(ACK_FLAG)));
-
-  // iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t);
-  // iph->check = 0;
-  // iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
 
   return 0;
 }

@@ -32,6 +32,7 @@ TAILQ_HEAD (tcp_cq, tcp_check_entry);
 struct tcp_cq tcp_ckq;
 
 pthread_mutex_t inq_lock;
+pthread_cond_t inq_cond;
 
 void handle_tcp (tcp_hdr_t *hdr);
 tcp_hdr_t *tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag);

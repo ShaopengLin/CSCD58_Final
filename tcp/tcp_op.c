@@ -15,6 +15,7 @@ handle_tcp (tcp_hdr_t *hdr)
       e->hdr = hdr;
       pthread_mutex_lock (&inq_lock);
       TAILQ_INSERT_HEAD (&tcp_inq, e, entry);
+      pthread_cond_signal (&inq_cond);
       pthread_mutex_unlock (&inq_lock);
     }
 }
@@ -34,9 +35,13 @@ tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag)
       // Shouldn't happen
       if (TAILQ_EMPTY (&tcp_ckq))
         return NULL;
-      pthread_mutex_lock (&inq_lock);
+
       tcp_packet_entry_t *inq_e = NULL;
       tcp_check_entry_t *ckq_e = NULL;
+      pthread_mutex_lock (&inq_lock);
+      while (TAILQ_EMPTY (&tcp_inq))
+        pthread_cond_wait (&inq_cond, &inq_lock);
+
       TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
       {
         TAILQ_FOREACH (inq_e, &tcp_inq, entry)
