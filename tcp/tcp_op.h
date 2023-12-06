@@ -32,12 +32,16 @@ TAILQ_HEAD (tcp_cq, tcp_check_entry);
 struct tcp_cq tcp_ckq;
 
 pthread_mutex_t inq_lock;
+pthread_cond_t inq_cond;
 
+void *tcp_check_timeout ();
 void handle_tcp (tcp_hdr_t *hdr);
 tcp_hdr_t *tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag);
 
 uint32_t tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin);
-
+uint32_t tcp_stop_and_wait (int socket, in_addr_t src_ip,
+                            struct sockaddr_in sin, uint32_t ack_num,
+                            uint32_t num_byte);
 void tcp_teardown (int socket, in_addr_t src_ip, struct sockaddr_in sin,
                    uint32_t ack_num);
 
