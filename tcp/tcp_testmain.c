@@ -68,7 +68,6 @@ recv_func ()
                 }
             }
         }
-      tcp_check_timeout ();
     }
 }
 
@@ -83,14 +82,13 @@ main (int argc, char **argv)
   TAILQ_INIT (&tcp_ckq);
   pthread_t recv_tid;
   pthread_t timer_tid;
-  if (pthread_create (&recv_tid, NULL, &recv_func, NULL) != 0)
-    exit (-1);
-  if (pthread_create (&timer_tid, NULL, &tcp_check_timeout, NULL) != 0)
-    exit (-1);
-
   if (pthread_mutex_init (&inq_lock, NULL) != 0)
     exit (-1);
   if (pthread_cond_init (&inq_cond, NULL) != 0)
+    exit (-1);
+  if (pthread_create (&recv_tid, NULL, &recv_func, NULL) != 0)
+    exit (-1);
+  if (pthread_create (&timer_tid, NULL, &tcp_check_timeout, NULL) != 0)
     exit (-1);
   // Create a raw socket
   int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
@@ -122,8 +120,11 @@ main (int argc, char **argv)
     }
 
   uint32_t ack_num = tcp_handshake (s, inet_addr (source_ip), sin);
-  ack_num
-      = tcp_stop_and_wait (s, inet_addr (source_ip), sin, ack_num, num_bytes);
+  // ack_num
+  //     = tcp_stop_and_wait (s, inet_addr (source_ip), sin, ack_num,
+  //     num_bytes);
+  ack_num = tcp_send_sliding_window_fixed (s, inet_addr (source_ip), sin,
+                                           ack_num, num_bytes);
   tcp_teardown (s, inet_addr (source_ip), sin, ack_num);
 
   return 0;
