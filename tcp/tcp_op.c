@@ -7,6 +7,7 @@
 uint32_t SEQNUM;
 uint16_t CWND;
 uint32_t SENT;
+uint32_t INITSEQ;
 void *
 tcp_check_timeout ()
 {
@@ -166,6 +167,7 @@ tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin)
     {
       exit (-1);
     }
+
   return ack_num;
 }
 
@@ -173,8 +175,9 @@ uint32_t
 tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
                    uint32_t ack_num, uint32_t num_byte)
 {
-  uint32_t quotient = num_byte / 1460;
-  uint32_t remainder = num_byte % 1460;
+  size_t size = 100;
+  uint32_t quotient = num_byte / size;
+  uint32_t remainder = num_byte % size;
 
   char datagram[4096];
   memset (datagram, 0, 4096);
@@ -189,7 +192,7 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
   iph->ihl = 5;
   iph->version = 4;
   iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + 1460;
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + size;
   iph->id = htonl (54321); // Id of this packet
   iph->frag_off = 0;
   iph->ttl = 255;
@@ -202,7 +205,7 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
 
   while (quotient != 0)
     {
-      tcp_gen_packet (tcph, (uint8_t *)data, 1460, src_ip, sin.sin_addr.s_addr,
+      tcp_gen_packet (tcph, (uint8_t *)data, size, src_ip, sin.sin_addr.s_addr,
                       1234, dst_port, SEQNUM, ack_num,
                       (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
       if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
@@ -211,7 +214,7 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
         {
           exit (-1);
         }
-      SEQNUM += 1460;
+      SEQNUM += size;
       free (tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
                              (uint8_t)(ACK_FLAG)));
       quotient--;
@@ -245,10 +248,15 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
                                uint32_t num_byte)
 
 {
-  uint32_t quotient = num_byte / 1460, max_full_packet = quotient;
-  uint32_t remainder = num_byte % 1460;
+  size_t size = 1460;
+  uint32_t quotient = num_byte / size, max_full_packet = quotient;
+  uint32_t remainder = num_byte % size;
+  uint32_t max_ack = SEQNUM;
+  INITSEQ = SEQNUM;
   SENT = 0;
+  CWND = size * 10;
   uint32_t total_sent = 0;
+  uint32_t processed = 0;
   char datagram[4096];
   memset (datagram, 0, 4096);
   uint8_t *data
@@ -262,7 +270,7 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
   iph->ihl = 5;
   iph->version = 4;
   iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + 1460;
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + size;
   iph->id = htonl (54321); // Id of this packet
   iph->frag_off = 0;
   iph->ttl = 255;
@@ -275,78 +283,83 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
 
   while (quotient != 0)
     {
-      printf ("QUOTIENT: %u\n", quotient);
       pthread_mutex_lock (&inq_lock);
-      perror ("LOCK");
+      // printf ("QUOTIENT: %u\n", quotient);
+
       /* When CWND full, we restart only when new packets or timeout happen */
-      if (SENT + 1460 > CWND)
-        pthread_cond_wait (&inq_cond, &inq_lock);
-      perror ("COND");
+      if (SENT + size > CWND)
+        {
+          pthread_cond_wait (&inq_cond, &inq_lock);
+        }
       /* Handle Timeout. Later need to do retransmit, changing SENT and SEQ */
-      perror ("TIMEOUT");
       tcp_check_entry_t *ckq_e = NULL;
+      bool retrans = false;
       TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
       {
         if (ckq_e->timeout <= time (0))
           {
-            perror ("DEAD");
-            exit (-1);
+            SEQNUM = ntohl (ckq_e->hdr->ack_num) - size;
+            retrans = true;
+            perror ("RETRANSMIT");
+            break;
           }
       }
 
-      /* Handle recved packet, decrement SENT */
       tcp_packet_entry_t *inq_e = NULL;
       ckq_e = NULL;
-
-      perror ("TAG");
-      /* Tag all recieved inq. */
-      TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
-      {
-        if (ckq_e->checked)
-          continue;
-        TAILQ_FOREACH (inq_e, &tcp_inq, entry)
+      if (retrans)
         {
-          if (inq_e->checked)
-            continue;
-          /* Match packet */
-          if (tcp_cmp_flag (inq_e->hdr, ckq_e->hdr)
-              && inq_e->hdr->ack_num == ckq_e->hdr->ack_num)
+          while (!TAILQ_EMPTY (&tcp_ckq))
             {
-              inq_e->checked = true;
-              ckq_e->checked = true;
-              break;
+              ckq_e = TAILQ_FIRST (&tcp_ckq);
+              TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
+              SENT -= size;
+              total_sent--;
+              free (ckq_e->hdr);
+              free (ckq_e);
+            }
+          while (!TAILQ_EMPTY (&tcp_inq))
+            {
+              inq_e = TAILQ_FIRST (&tcp_inq);
+              TAILQ_REMOVE (&tcp_inq, inq_e, entry);
+              free (inq_e->hdr);
+              free (inq_e);
             }
         }
-      }
 
-      perror ("POP1");
-      /* Pop consectutive inq starting at head. Stop at unrec */
+      /* Handle current recieved packet. The update max ack, and consider
+         packets will <= ack recieved.
+       */
       while (!TAILQ_EMPTY (&tcp_inq))
         {
           inq_e = TAILQ_FIRST (&tcp_inq);
-          if (!inq_e->checked)
-            break;
+          uint32_t e_ack = ntohl (inq_e->hdr->ack_num);
+          max_ack = max_ack < e_ack ? e_ack : max_ack;
+
           TAILQ_REMOVE (&tcp_inq, inq_e, entry);
           free (inq_e->hdr);
           free (inq_e);
         }
-      perror ("POP2");
+      /* Continued, remove ckq entries with less than max_ack and update window
+       */
       while (!TAILQ_EMPTY (&tcp_ckq))
         {
           ckq_e = TAILQ_FIRST (&tcp_ckq);
-          if (!ckq_e->checked)
+          uint32_t e_ack = ntohl (ckq_e->hdr->ack_num);
+          if (e_ack > max_ack)
             break;
           TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
           free (ckq_e->hdr);
           free (ckq_e);
-          SENT -= 1460;
+          SENT -= size;
           quotient--;
         }
-      perror ("SEND");
+
       /* Start sending, increment SENT decrement quotient. */
-      while (SENT + 1460 <= CWND && total_sent < max_full_packet)
+      while (SENT + size <= CWND && total_sent < max_full_packet)
         {
-          tcp_gen_packet (tcph, (uint8_t *)data, 1460, src_ip,
+          sprintf ((char *)data, "%d ", total_sent);
+          tcp_gen_packet (tcph, (uint8_t *)data, size, src_ip,
                           sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
                           (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
           if (sendto (socket, datagram, iph->tot_len, 0,
@@ -356,37 +369,32 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
               exit (-1);
             }
           total_sent++;
-          SEQNUM += 1460;
-          SENT += 1460;
+          SEQNUM += size;
+          SENT += size;
           tcp_add_sw_packet (SEQNUM, time (0) + DEFAULT_RTO);
-          printf ("PACKET SEQ %u\n", SEQNUM);
         }
-      perror ("SEND DONE");
       pthread_mutex_unlock (&inq_lock);
-      perror ("SEND OK");
     }
-
-  // if (remainder == 0)
-  //   return ack_num;
-  // iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + remainder;
-  // iph->check = 0;
-  // iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct
-  // iphdr)); tcp_gen_packet (tcph, (uint8_t *)data, remainder, src_ip,
-  //                 sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
-  //                 (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
-  // if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr
-  // *)&sin,
-  //             sizeof (sin))
-  //     < 0)
-  //   {
-  //     exit (-1);
-  //   }
-  // SEQNUM += remainder;
-  // tcp_hdr_t *dataack_hdr
-  //     = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
-  //     (uint8_t)(ACK_FLAG));
-  // ack_num = ntohl (dataack_hdr->seq_num);
-  // free (dataack_hdr);
+  if (remainder == 0)
+    return ack_num;
+  strcpy ((char *)data, "B");
+  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + remainder;
+  iph->check = 0;
+  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
+  tcp_gen_packet (tcph, (uint8_t *)data, remainder, src_ip,
+                  sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
+                  (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
+  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
+              sizeof (sin))
+      < 0)
+    {
+      exit (-1);
+    }
+  SEQNUM += remainder;
+  tcp_hdr_t *dataack_hdr
+      = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO, (uint8_t)(ACK_FLAG));
+  ack_num = ntohl (dataack_hdr->seq_num);
+  free (dataack_hdr);
   return ack_num;
 }
 

@@ -27,6 +27,7 @@ struct tcp_check_entry
   tcp_hdr_t *hdr;
   time_t timeout;
   bool checked;
+  tcp_packet_entry_t *packet;
 } __attribute__ ((packed));
 typedef struct tcp_check_entry tcp_check_entry_t;
 
