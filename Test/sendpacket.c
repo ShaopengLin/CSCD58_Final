@@ -166,3 +166,35 @@ int send_raw_icmp_packet(uint8_t *buffer, size_t buffer_size) {
     close(sockfd);
     return 0;
 }
+
+int send_ip_packet(struct arp_header* receive_arp_header){
+        printf("-------------------------------------------------------------\n");
+        size_t send_buffer_size = sizeof(struct eth_header) + sizeof(struct ip_header) + sizeof(struct icmp_echo);
+        uint8_t *send_buffer = (uint8_t *)malloc(send_buffer_size);
+
+        struct eth_header* send_eth = malloc(sizeof(struct eth_header)); // Use your struct
+        create_eth_header(send_eth, receive_arp_header->tha, receive_arp_header->sha, ether_ip);
+
+        struct ip_header* send_ip = malloc(sizeof(struct ip_header)); // Use your struct
+        create_ip_header(send_ip, receive_arp_header->tip, receive_arp_header->sip, ip_protocol_icmp, sizeof(struct ip_header)+sizeof(struct icmp_echo));
+        
+        struct icmp_echo* send_icmp = malloc(sizeof(struct icmp_echo)); // Use your struct
+        create_icmp_echo_header(send_icmp);
+
+        memcpy(send_buffer, send_eth, sizeof(struct eth_header));
+        memcpy(send_buffer + sizeof(struct eth_header), send_ip, sizeof(struct ip_header));
+        memcpy(send_buffer + sizeof(struct eth_header) + sizeof(struct ip_header), send_icmp, sizeof(struct icmp_echo));
+
+
+
+        printf("Size of ip_header: %lu\n", sizeof(struct ip_header));
+        printf("Size of icmp_header: %lu\n", sizeof(struct icmp_echo));
+        printf("Size of eth_header: %lu\n", sizeof(struct eth_header));
+        // print_headers(send_buffer);
+
+        send_raw_icmp_packet(send_buffer, send_buffer_size);
+        free(send_eth);
+        free(send_ip);
+        free(send_icmp);
+        free(send_buffer);
+    }
