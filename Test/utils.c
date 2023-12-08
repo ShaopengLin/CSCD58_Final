@@ -46,13 +46,44 @@ void print_headers(unsigned char *buffer) {
             // Other fields can be added here
         }
     }
-    else if (ntohs(eth_header->h_proto) == ETH_P_ARP){
+    else if (ntohs(eth_header->h_proto) == ETH_P_ARP) {
         struct arphdr *arp_header = (struct arphdr *)(buffer + sizeof(struct ethhdr));
+
+        // Printing basic ARP header info
         printf("ARP Header\n");
         printf("\t|-Hardware type: %d\n", ntohs(arp_header->ar_hrd));
         printf("\t|-Protocol type: %d\n", ntohs(arp_header->ar_pro));
         printf("\t|-Hardware size: %d\n", arp_header->ar_hln);
         printf("\t|-Protocol size: %d\n", arp_header->ar_pln);
         printf("\t|-Opcode: %d\n", ntohs(arp_header->ar_op));
+
+        unsigned char *sender_mac = (unsigned char *)(arp_header + 1);
+        unsigned char *sender_ip = sender_mac + arp_header->ar_hln;
+        unsigned char *target_mac = sender_ip + arp_header->ar_pln;
+        unsigned char *target_ip = target_mac + arp_header->ar_hln;
+
+        // Printing Sender MAC address
+        printf("\t|-Sender MAC: ");
+        for(int i=0; i < arp_header->ar_hln; i++)
+            printf("%02X:", sender_mac[i]);
+        printf("\n");
+
+        // Printing Sender IP address
+        printf("\t|-Sender IP: ");
+        for(int i=0; i < arp_header->ar_pln; i++)
+            printf("%d.", sender_ip[i]);
+        printf("\n");
+
+        // Printing Target MAC address
+        printf("\t|-Target MAC: ");
+        for(int i=0; i < arp_header->ar_hln; i++)
+            printf("%02X:", target_mac[i]);
+        printf("\n");
+
+        // Printing Target IP address
+        printf("\t|-Target IP: ");
+        for(int i=0; i < arp_header->ar_pln; i++)
+            printf("%d.", target_ip[i]);
+        printf("\n");
     }
 } 
