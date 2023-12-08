@@ -7,6 +7,28 @@
 uint32_t SEQNUM;
 uint16_t RWND;
 
+uint64_t
+SEC_TO_NS (time_t sec)
+{
+  return (sec) * 1000000000;
+};
+
+uint64_t
+getNano ()
+{
+  uint64_t nanoseconds;
+  struct timespec ts;
+  int return_code = timespec_get (&ts, TIME_UTC);
+  if (return_code == 0)
+    {
+      perror ("Cannot get time for some reason");
+      exit (-1);
+    }
+  else
+    nanoseconds = SEC_TO_NS ((uint64_t)ts.tv_sec) + (uint64_t)ts.tv_nsec;
+  return nanoseconds;
+}
+
 void *
 tcp_check_timeout ()
 {
@@ -17,7 +39,7 @@ tcp_check_timeout ()
 
       TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
       {
-        if (ckq_e->timeout <= time (0))
+        if (ckq_e->timeout <= getNano ())
           pthread_cond_signal (&inq_cond);
       }
       pthread_mutex_unlock (&inq_lock);
@@ -42,7 +64,7 @@ handle_tcp (tcp_hdr_t *hdr)
 }
 
 tcp_hdr_t *
-tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag)
+tcp_wait_packet (uint32_t target_ack, uint64_t timeout, uint8_t flag)
 {
   tcp_check_entry_t *syn_check
       = (tcp_check_entry_t *)calloc (1, sizeof (tcp_check_entry_t));
@@ -85,7 +107,7 @@ tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag)
 
         /* Timeout */
 
-        if (ckq_e->timeout <= time (0))
+        if (ckq_e->timeout <= getNano ())
           {
             printf ("Timeout\n");
             TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
@@ -100,13 +122,16 @@ tcp_wait_packet (uint32_t target_ack, time_t timeout, uint8_t flag)
 }
 
 void
-tcp_add_sw_packet (uint32_t target_ack, time_t timeout, size_t len)
+tcp_add_sw_packet (uint32_t target_ack, uint64_t sent_time, uint64_t timeout,
+                   size_t len)
 {
   tcp_check_entry_t *syn_check
       = (tcp_check_entry_t *)calloc (1, sizeof (tcp_check_entry_t));
-  syn_check->timeout = timeout;
+  syn_check->sent_time = sent_time;
+  syn_check->timeout = sent_time + timeout;
   syn_check->hdr = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
   syn_check->len = len;
+  syn_check->RTT_counted = false;
   tcp_gen_packet (syn_check->hdr, NULL, 0, 0, 0, 0, 0, 0, target_ack,
                   (uint8_t)(ACK_FLAG), 0);
   TAILQ_INSERT_TAIL (&tcp_ckq, syn_check, entry);
@@ -149,7 +174,7 @@ tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin)
 
   /* Recieve TCP SYN ACK */
   SEQNUM++;
-  tcp_hdr_t *synack_hdr = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
+  tcp_hdr_t *synack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
                                            (uint8_t)(SYN_FLAG | ACK_FLAG));
   uint32_t ack_num = ntohl (synack_hdr->seq_num) + 1;
   RWND = ntohs (synack_hdr->window);
@@ -213,7 +238,7 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
           exit (-1);
         }
       SEQNUM += size;
-      free (tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
+      free (tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
                              (uint8_t)(ACK_FLAG)));
       quotient--;
     }
@@ -233,8 +258,8 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
       exit (-1);
     }
   SEQNUM += remainder;
-  tcp_hdr_t *dataack_hdr
-      = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO, (uint8_t)(ACK_FLAG));
+  tcp_hdr_t *dataack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
+                                            (uint8_t)(ACK_FLAG));
   ack_num = ntohl (dataack_hdr->seq_num);
   free (dataack_hdr);
   return ack_num;
@@ -295,7 +320,7 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
       bool retrans = false;
       TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
       {
-        if (ckq_e->timeout <= time (0))
+        if (ckq_e->timeout <= getNano ())
           {
             SEQNUM = ntohl (ckq_e->hdr->ack_num) - ckq_e->len;
             retrans = true;
@@ -382,7 +407,7 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
           SEQNUM += next_size;
           WND_SENT += next_size;
 
-          tcp_add_sw_packet (SEQNUM, time (0) + DEFAULT_RTO, next_size);
+          tcp_add_sw_packet (SEQNUM, getNano (), DEFAULT_RTO, next_size);
           next_size
               = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
         }
@@ -397,15 +422,21 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
                                      uint32_t num_byte)
 {
   size_t size = 1460;
+  uint32_t total_recv = 0;
   uint32_t num_packet = num_byte / size;
   num_packet += num_byte % size > 0 ? 1 : 0;
+  const uint32_t max_packet = num_packet;
   uint32_t rACK_counter = 0;
   uint32_t MAX_ACK = SEQNUM;
   uint16_t CWND = size;
+  uint16_t THRESHOLD = RWND;
   uint32_t WND_SENT = 0;
   uint32_t BYTE_SENT = 0;
+  uint64_t AVG_RTT = DEFAULT_RTO;
+  uint64_t DEV_RTT = 0;
   uint32_t next_size
       = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
+  bool is_additive = false;
   char datagram[4096];
   memset (datagram, 0, 4096);
   uint8_t *data
@@ -426,12 +457,9 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
   iph->check = 0;      // Set to 0 before calculating checksum
   iph->saddr = src_ip; // Spoof the source ip address
   iph->daddr = sin.sin_addr.s_addr;
-
-  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
-
   while (num_packet != 0)
     {
-      printf ("CWND %u\n", CWND / size);
+      // printf ("CWND %u\n", CWND / size);
       pthread_mutex_lock (&inq_lock);
       // printf ("QUOTIENT: %u\n", quotient);
 
@@ -446,13 +474,15 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
       tcp_check_entry_t *ckq_e = NULL;
       tcp_packet_entry_t *inq_e = NULL;
       bool retrans = false;
-
+      bool handled_slow = false;
       TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
       {
-        if (ckq_e->timeout <= time (0))
+        if (ckq_e->timeout <= getNano ())
           {
-            SEQNUM = ntohl (ckq_e->hdr->ack_num) - ckq_e->len;
+            SEQNUM = MAX_ACK;
             retrans = true;
+            is_additive = false;
+            THRESHOLD = (CWND / 2) < size ? size : CWND / 2;
             CWND = size;
             break;
           }
@@ -460,7 +490,7 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
 
       if (retrans)
         {
-          perror ("SLOWR");
+          // perror ("SLOWR");
           while (!TAILQ_EMPTY (&tcp_ckq))
             {
               ckq_e = TAILQ_FIRST (&tcp_ckq);
@@ -481,6 +511,7 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
               = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
           rACK_counter = 0;
           retrans = false;
+          handled_slow = true;
         }
 
       /* Handle current recieved packet. The update max ack, and consider
@@ -514,8 +545,20 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
        */
       while (!TAILQ_EMPTY (&tcp_ckq))
         {
+
           ckq_e = TAILQ_FIRST (&tcp_ckq);
           uint32_t e_ack = ntohl (ckq_e->hdr->ack_num);
+          if (!ckq_e->RTT_counted)
+            {
+              uint64_t SampleRTT = getNano () - ckq_e->sent_time;
+              SampleRTT -= (AVG_RTT >> 3);
+              AVG_RTT += SampleRTT;
+              if (SampleRTT < 0)
+                SampleRTT = -SampleRTT;
+              SampleRTT -= (DEV_RTT >> 3);
+              DEV_RTT += SampleRTT;
+              ckq_e->RTT_counted = true;
+            }
           if (e_ack > MAX_ACK)
             break;
           TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
@@ -523,14 +566,28 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
           free (ckq_e);
           WND_SENT -= ckq_e->len;
           num_packet--;
-          if (CWND + size < RWND)
-            CWND += size; // Every recieved packet increases window size by 2
+
+          if (!is_additive)
+            {
+              if (CWND + size > THRESHOLD)
+                {
+                  is_additive = true;
+                }
+              else if (CWND + size < RWND)
+                CWND += size; // Every recieved packet increases window size by
+                              // 2
+            }
+          else if (CWND + size < RWND)
+            {
+              CWND += (uint32_t)(size * ((float)size / (float)CWND));
+            }
         }
-      if (retrans)
+      // printf ("AVGRTT: %u", AVG_RTT);
+      if (retrans && !handled_slow)
         {
           SEQNUM = MAX_ACK;
-          CWND = size;
-          perror ("FASTR");
+          CWND = (CWND / 2) < size ? size : CWND / 2;
+          // perror ("FASTR");
           while (!TAILQ_EMPTY (&tcp_ckq))
             {
               ckq_e = TAILQ_FIRST (&tcp_ckq);
@@ -543,6 +600,7 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
           next_size
               = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
           rACK_counter = 0;
+          is_additive = true;
         }
       /* Start sending, increment SENT decrement quotient. */
       while (WND_SENT + next_size <= CWND && BYTE_SENT < num_byte)
@@ -555,7 +613,14 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
               iph->check = tcp_cksum ((unsigned short *)datagram,
                                       sizeof (struct iphdr));
             }
-          sprintf ((char *)data, "%u ", BYTE_SENT / size);
+          else
+            {
+              iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + size;
+              iph->check = 0;
+              iph->check = tcp_cksum ((unsigned short *)datagram,
+                                      sizeof (struct iphdr));
+            }
+          // sprintf ((char *)data, "%u ", BYTE_SENT / size);
           tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip,
                           sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
                           (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
@@ -568,8 +633,10 @@ tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
           BYTE_SENT += next_size;
           SEQNUM += next_size;
           WND_SENT += next_size;
-
-          tcp_add_sw_packet (SEQNUM, time (0) + DEFAULT_RTO, next_size);
+          tcp_add_sw_packet (SEQNUM, getNano (),
+                             AVG_RTT == 0 ? DEFAULT_RTO
+                                          : (AVG_RTT >> 3) + (DEV_RTT >> 1),
+                             next_size);
           next_size
               = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
         }
@@ -615,7 +682,7 @@ tcp_teardown (int socket, in_addr_t src_ip, struct sockaddr_in sin,
 
   /* Recieve TCP FIN ACK */
   SEQNUM++;
-  tcp_hdr_t *finack_hdr = tcp_wait_packet (SEQNUM, time (0) + DEFAULT_RTO,
+  tcp_hdr_t *finack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
                                            (uint8_t)(FIN_FLAG | ACK_FLAG));
   ack_num = ntohl (finack_hdr->seq_num) + 1;
   free (finack_hdr);
