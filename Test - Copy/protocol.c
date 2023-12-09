@@ -38,13 +38,16 @@ void create_ip_header(struct ip_header *header, uint32_t src_addr , uint32_t des
     // header->checksum = ip_checksum(header, header->ihl * 4);
 }
 
-void create_icmp_echo_header(struct icmp_echo *header){
+void create_icmp_echo_header(struct icmp_echo *header,int size){
     header->icmp_type = 8;
     header->icmp_code = 0;
     header->icmp_checksum = 0;
     header->identifier = global_ip_id;
     header->sequence_number = htons(1);
     header->icmp_checksum = cksum(header, sizeof(header));
+    for(int i=0;i<size;i++){
+      header->data[i] = 0;
+    }
 }
 
 void create_arp_header(struct arp_header *header, uint16_t operation, uint8_t *src_mac, uint32_t src_ip, 
