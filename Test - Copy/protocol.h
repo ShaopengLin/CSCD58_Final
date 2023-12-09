@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <time.h>
 
 #define EthernetAddrLen 6
 #define IpAddrLen 4
@@ -39,6 +40,8 @@ struct __attribute__((packed)) icmp_echo {
     uint16_t identifier;  // Used to match echoes and replies
     uint16_t sequence_number; // Sequence number to match requests with replies
 
+    uint8_t data[];
+
     // This would be followed by the data payload of the message, which is variable length
 };
 
@@ -61,6 +64,12 @@ struct eth_header {
     uint8_t  source[EthernetAddrLen]; 
     uint16_t type;
 }; 
+
+struct icmp_list{
+    uint16_t id;
+    clock_t start;
+    struct icmp_list *next;
+};
 
 enum ethernetTypes {
   ether_arp = 0x0806,
