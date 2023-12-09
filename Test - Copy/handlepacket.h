@@ -1,1 +1,3 @@
-int handle_arp(unsigned char * buffer);
+#include <pthread.h>  
+
+double handle_icmp(unsigned char * buffer, struct icmp_list *head);
