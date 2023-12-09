@@ -7,10 +7,10 @@
 #ifndef TCP_OP_H
 #define TCP_OP_H
 
-#define DEFAULT_RTO SEC_TO_NS (1)
-
+#define DEFAULT_RTO SEC_TO_NS (3)
+#define ALPHA 0.8
 extern uint32_t SEQNUM;
-extern uint16_t RWND;
+extern uint32_t RWND;
 extern uint32_t sent_size;
 
 struct tcp_packet_entry
