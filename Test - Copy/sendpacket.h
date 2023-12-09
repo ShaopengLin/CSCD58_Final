@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -21,3 +22,4 @@ char* find_active_interface();
 int get_mac_ip(const char *iface, uint8_t *mac, uint32_t *ip);
 int send_arp_packet(uint32_t targetIp);
 int send_raw_icmp_packet(uint8_t *buffer, size_t buffer_size);
+int send_ip_packet(struct arp_header* receive_arp_header);
