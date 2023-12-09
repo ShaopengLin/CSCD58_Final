@@ -1,48 +1,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>  
 
 #include "utils.h"
 #include "protocol.h"
-
-int handle_arp(unsigned char * buffer){
-    
-    // print_headers(buffer);
-
-    struct eth_header *receive_eth_header = (struct eth_header *)buffer;
-    // extern uint8_t DEST_MAC = receive_eth_header-> source;
-    struct arp_header *receive_arp_header = (struct arp_header *)(buffer + sizeof(struct ethhdr));
-    if(receive_arp_header->operation == htons(arp_reply)){
-        printf("-------------------------------------------------------------\n");
-        size_t send_buffer_size = sizeof(struct eth_header) + sizeof(struct ip_header) + sizeof(struct icmp_echo);
-        uint8_t *send_buffer = (uint8_t *)malloc(send_buffer_size);
-
-        struct eth_header* send_eth = malloc(sizeof(struct eth_header)); // Use your struct
-        create_eth_header(send_eth, receive_eth_header->destination, receive_eth_header->source, ether_ip);
-
-        struct ip_header* send_ip = malloc(sizeof(struct ip_header)); // Use your struct
-        create_ip_header(send_ip, receive_arp_header->tip, receive_arp_header->sip, ip_protocol_icmp, sizeof(struct ip_header)+sizeof(struct icmp_echo));
-        
-        struct icmp_echo* send_icmp = malloc(sizeof(struct icmp_echo)); // Use your struct
-        create_icmp_echo_header(send_icmp);
-
-        memcpy(send_buffer, send_eth, sizeof(struct eth_header));
-        memcpy(send_buffer + sizeof(struct eth_header), send_ip, sizeof(struct ip_header));
-        memcpy(send_buffer + sizeof(struct eth_header) + sizeof(struct ip_header), send_icmp, sizeof(struct icmp_echo));
+#include <semaphore.h>
 
 
-
-        printf("Size of ip_header: %lu\n", sizeof(struct ip_header));
-        printf("Size of icmp_header: %lu\n", sizeof(struct icmp_echo));
-        printf("Size of eth_header: %lu\n", sizeof(struct eth_header));
-        // print_headers(send_buffer);
-
-        send_raw_icmp_packet(send_buffer, send_buffer_size);
-        free(send_eth);
-        free(send_ip);
-        free(send_icmp);
-        free(send_buffer);
-    }
-
-
+// Go over the linked list, if find same id, return the head, else return NULL
+struct icmp_list * check_list(struct icmp_echo *receive_icmp_header, struct icmp_list *head){
+    if(head == NULL) return NULL;
+    if(receive_icmp_header->identifier == head->id) return head;
+    return(check_list(receive_icmp_header, head->next));
 }
+
+
+
+double handle_icmp(unsigned char * buffer, struct icmp_list *head){
+    // Create a end time to see time interval of packet
+    double time;
+    clock_t end = clock();
+    struct icmp_echo *receive_icmp_header = (struct icmp_echo *)(buffer + sizeof(struct ethhdr) + sizeof(struct ip_header));
+
+    // Check if receive icmp id is in out linked list
+    struct icmp_list * temp = check_list(receive_icmp_header, head);
+
+    if(temp == NULL){
+        printf("Not IN List: %hu\n", (unsigned int)receive_icmp_header->identifier);
+        return -1;
+    } 
+
+    // Return time interval
+    time = (double)(end - temp->start) / CLOCKS_PER_SEC;
+    return time;
+} 
