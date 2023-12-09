@@ -9,5 +9,6 @@
 #include <net/ethernet.h>    // For Ethernet header
 
 void print_headers(unsigned char *buffer);
+int print_arp_headers(struct arphdr * arp_header);
 
 #endif // PACKET_UTILS_H
