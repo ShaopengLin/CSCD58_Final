@@ -27,6 +27,8 @@ struct tcp_check_entry
   size_t len;
   uint64_t timeout;
   uint64_t sent_time;
+  uint32_t rAck;
+  bool retransmitted;
   bool RTT_counted;
 } __attribute__ ((packed));
 typedef struct tcp_check_entry tcp_check_entry_t;
@@ -55,6 +57,9 @@ uint32_t tcp_stop_and_wait (int socket, in_addr_t src_ip,
 uint32_t tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
                                         struct sockaddr_in sin,
                                         uint32_t ack_num, uint32_t num_byte);
+uint32_t tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
+                                       struct sockaddr_in sin,
+                                       uint32_t ack_num, uint32_t num_byte);
 uint32_t tcp_send_sliding_window_fastR_slowS (int socket, in_addr_t src_ip,
                                               struct sockaddr_in sin,
                                               uint32_t ack_num,

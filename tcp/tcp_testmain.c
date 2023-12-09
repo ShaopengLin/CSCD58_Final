@@ -123,10 +123,11 @@ main (int argc, char **argv)
   // ack_num
   //     = tcp_stop_and_wait (s, inet_addr (source_ip), sin, ack_num,
   //     num_bytes);
-  // ack_num = tcp_send_sliding_window_fixed (s, inet_addr (source_ip), sin,
-  //                                          ack_num, num_bytes);
-  ack_num = tcp_send_sliding_window_fastR_slowS (s, inet_addr (source_ip), sin,
-                                                 ack_num, num_bytes);
+  ack_num = tcp_send_sliding_window_test (s, inet_addr (source_ip), sin,
+                                          ack_num, num_bytes);
+  // ack_num = tcp_send_sliding_window_fastR_slowS (s, inet_addr (source_ip),
+  // sin,
+  //                                                ack_num, num_bytes);
   tcp_teardown (s, inet_addr (source_ip), sin, ack_num);
 
   return 0;
