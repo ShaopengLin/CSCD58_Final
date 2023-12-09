@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g -Wall -O0 -pthread
+CFLAGS = -g -Wall -O3 -pthread
 LDFLAGS = -lm
 TCP_SOURCES = tcp_testmain.c tcp_protocol.c tcp_op.c mt19937ar.c
 TCP_OBJECTS = $(TCP_SOURCES:.c=.o)
