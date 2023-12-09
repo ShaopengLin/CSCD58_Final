@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
     
     for(int i=0; i<packet_to_send; i++){
         pthread_mutex_lock(&mutex); 
-        insert_at_head(send_ip_packet(receive_arp_header), clock());
+        insert_at_head(send_ip_packet(receive_arp_header,packet_size), clock());
         pthread_mutex_unlock(&mutex); 
         sleep(packet_interval);
     }
