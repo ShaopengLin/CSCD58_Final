@@ -167,23 +167,23 @@ int send_raw_icmp_packet(uint8_t *buffer, size_t buffer_size) {
     return 0;
 }
 
-uint16_t send_ip_packet(struct arp_header* receive_arp_header){
-        size_t send_buffer_size = sizeof(struct eth_header) + sizeof(struct ip_header) + sizeof(struct icmp_echo);
+uint16_t send_ip_packet(struct arp_header* receive_arp_header, int size){
+        size_t send_buffer_size = sizeof(struct eth_header) + sizeof(struct ip_header) + sizeof(struct icmp_echo) + size*sizeof(uint8_t);
         uint8_t *send_buffer = (uint8_t *)malloc(send_buffer_size);
 
         struct eth_header* send_eth = malloc(sizeof(struct eth_header));
         create_eth_header(send_eth, receive_arp_header->tha, receive_arp_header->sha, ether_ip);
 
         struct ip_header* send_ip = malloc(sizeof(struct ip_header));
-        create_ip_header(send_ip, receive_arp_header->tip, receive_arp_header->sip, ip_protocol_icmp, sizeof(struct ip_header)+sizeof(struct icmp_echo));
+        create_ip_header(send_ip, receive_arp_header->tip, receive_arp_header->sip, ip_protocol_icmp, sizeof(struct ip_header)+sizeof(struct icmp_echo) + size*sizeof(uint8_t));
         
-        struct icmp_echo* send_icmp = malloc(sizeof(struct icmp_echo));
-        create_icmp_echo_header(send_icmp);
+        struct icmp_echo* send_icmp = malloc(sizeof(struct icmp_echo) + size*sizeof(uint8_t));
+        create_icmp_echo_header(send_icmp, size);
 
         // Copy our raw data to buffer and ready to send
         memcpy(send_buffer, send_eth, sizeof(struct eth_header));
         memcpy(send_buffer + sizeof(struct eth_header), send_ip, sizeof(struct ip_header));
-        memcpy(send_buffer + sizeof(struct eth_header) + sizeof(struct ip_header), send_icmp, sizeof(struct icmp_echo));
+        memcpy(send_buffer + sizeof(struct eth_header) + sizeof(struct ip_header), send_icmp, sizeof(struct icmp_echo)+ size*sizeof(uint8_t));
         uint16_t id = send_icmp->identifier;
 
         // Send raw socket
