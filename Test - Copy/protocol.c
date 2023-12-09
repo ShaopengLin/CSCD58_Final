@@ -42,7 +42,7 @@ void create_icmp_echo_header(struct icmp_echo *header){
     header->icmp_type = 8;
     header->icmp_code = 0;
     header->icmp_checksum = 0;
-    header->identifier = 111;
+    header->identifier = global_ip_id;
     header->sequence_number = htons(1);
     header->icmp_checksum = cksum(header, sizeof(header));
 }
