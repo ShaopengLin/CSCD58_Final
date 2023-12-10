@@ -103,6 +103,14 @@ packet_receiver (void *arg)
 void
 main (int argc, char **argv)
 {
+  int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+  struct sockaddr_ll socket_address;
+  memset(&socket_address, 0, sizeof(struct sockaddr_ll));
+  socket_address.sll_family = AF_PACKET;
+  socket_address.sll_protocol = htons(ether_arp);
+  socket_address.sll_ifindex = if_nametoindex(find_active_interface()); // Use iface variable
+  socket_address.sll_halen = ETH_ALEN;
+  initSocket(sockfd, socket_address);
   int sock_r;
   pthread_t thread_id;
   receive_arp_header = malloc (sizeof (struct arp_header));
@@ -151,7 +159,7 @@ main (int argc, char **argv)
   // Optionally wait for the thread to finish
   // pthread_join(thread_id, NULL);
 
-  const char *ip_str = "10.0.0.2";
+  const char *ip_str = "10.1.1.2";
   uint32_t targetIp = inet_addr (ip_str);
 
   if (targetIp == INADDR_NONE)

@@ -16,6 +16,13 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+int sockfd;
+struct sockaddr_ll socket_address;
+
+int initSocket(int fd, struct sockaddr_ll add){
+    sockfd = fd;
+    socket_address = add;
+}
 
 char *
 find_active_interface ()
@@ -141,11 +148,11 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
   uint32_t ip;
   char *iface = find_active_interface ();
   get_mac_ip (iface, mac, &ip); // Corrected to pass the address of ip
-  int sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
-  if (sockfd < 0)
-    {
-      perror ("the socket fails to be created");
-    }
+  // int sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
+  // if (sockfd < 0)
+  //   {
+  //     perror ("the socket fails to be created");
+  //   }
   struct eth_header *eth = malloc (sizeof (struct eth_header));
   create_eth_header (eth, mac, dest_mac, ether_ip);
 
@@ -159,12 +166,12 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
   memcpy (buffer + sizeof (struct eth_header), iph, sizeof (struct ip_header));
   memcpy (buffer + sizeof (struct eth_header) + sizeof (struct ip_header),
           tcpbuff, tcpTotalLen);
-  struct sockaddr_ll socket_address;
-  memset (&socket_address, 0, sizeof (struct sockaddr_ll));
-  socket_address.sll_family = AF_PACKET;
-  socket_address.sll_protocol = htons (ether_ip);
-  socket_address.sll_ifindex = if_nametoindex (iface); // Use iface variable
-  socket_address.sll_halen = ETH_ALEN;
+  // struct sockaddr_ll socket_address;
+  // memset (&socket_address, 0, sizeof (struct sockaddr_ll));
+  // socket_address.sll_family = AF_PACKET;
+  // socket_address.sll_protocol = htons (ether_ip);
+  // socket_address.sll_ifindex = if_nametoindex (iface); // Use iface variable
+  // socket_address.sll_halen = ETH_ALEN;
   memcpy (socket_address.sll_addr, eth->destination, ETH_ALEN);
 
   // Sending
