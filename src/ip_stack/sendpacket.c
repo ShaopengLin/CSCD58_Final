@@ -4,7 +4,7 @@
 #include <ifaddrs.h>
 #include <linux/if.h>
 #include <linux/if_packet.h>
-#include <net/ethernet.h> // For ETH_P_ALL
+#include <net/ethernet.h> 
 #include <netinet/ether.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -16,9 +16,12 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+//global socket used to send tcp requests instead of create and close it in sending each packet
 int sockfd;
 struct sockaddr_ll socket_address;
 
+//using in main funciton to set one sockfd and socket_address and use it to send packets
 int
 initTCPSocket ()
 {
@@ -32,6 +35,7 @@ initTCPSocket ()
   free (iface);
 }
 
+//get the current interface neame of the host
 char *
 find_active_interface ()
 {
@@ -64,6 +68,7 @@ find_active_interface ()
   return interface_name;
 }
 
+//get the mac address and ip of the current interface to determine the source mac and ip
 int
 get_mac_ip (const char *iface, uint8_t *mac, uint32_t *ip)
 {
@@ -100,6 +105,7 @@ get_mac_ip (const char *iface, uint8_t *mac, uint32_t *ip)
   return 0;
 }
 
+// send a arp request of the target IP
 int
 send_arp_packet (uint32_t targetIp)
 {
@@ -114,14 +120,19 @@ send_arp_packet (uint32_t targetIp)
       perror ("the socket fails to be created");
     }
 
+  //use the broadcast address to send out the arp request
   uint8_t destmac[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
+  //set up ethernet header
   struct eth_header *eth = malloc (sizeof (struct eth_header));
   create_eth_header (eth, mac, destmac, ether_arp);
+
+  //set up arp header
   struct arp_header *arp = malloc (sizeof (struct arp_header));
   create_arp_header (arp, arp_request, mac, ip, destmac, targetIp);
-  size_t buffer_size = sizeof (struct eth_header) + sizeof (struct arp_header);
-  uint8_t *buffer = (uint8_t *)malloc (buffer_size);
+
+  //coppy to buffer
+  uint8_t *buffer = (uint8_t *)malloc (sizeof (struct eth_header) + sizeof (struct arp_header));
   memcpy (buffer, eth, sizeof (struct eth_header));
   memcpy (buffer + sizeof (struct eth_header), arp,
           sizeof (struct arp_header));
@@ -136,7 +147,7 @@ send_arp_packet (uint32_t targetIp)
 
   // Sending
   ssize_t bytes_sent
-      = sendto (sockfd, buffer, buffer_size, 0,
+      = sendto (sockfd, buffer, sizeof (struct eth_header) + sizeof (struct arp_header), 0,
                 (struct sockaddr *)&socket_address, sizeof (socket_address));
   if (bytes_sent < 0)
     {
@@ -175,12 +186,6 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
   memcpy (buffer + sizeof (struct eth_header), iph, sizeof (struct ip_header));
   memcpy (buffer + sizeof (struct eth_header) + sizeof (struct ip_header),
           tcpbuff, tcpTotalLen);
-  // struct sockaddr_ll socket_address;
-  // memset (&socket_address, 0, sizeof (struct sockaddr_ll));
-  // socket_address.sll_family = AF_PACKET;
-  // socket_address.sll_protocol = htons (ether_ip);
-  // socket_address.sll_ifindex = if_nametoindex (iface); // Use iface variable
-  // socket_address.sll_halen = ETH_ALEN;
   memcpy (socket_address.sll_addr, eth->destination, ETH_ALEN);
 
   // Sending
@@ -188,15 +193,6 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
       sockfd, buffer,
       sizeof (struct eth_header) + sizeof (struct ip_header) + tcpTotalLen, 0,
       (struct sockaddr *)&socket_address, sizeof (socket_address));
-  // if (bytes_sent < 0)
-  //   {
-  //     perror ("sendto");
-  //   }
-  // else
-  //   {
-  //     printf ("Packet sent. %zd bytes.\n", bytes_sent);
-  //   }
-  // print_headers (buffer);
   free (buffer);
   free (eth);
   free (iph);
