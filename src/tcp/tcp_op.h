@@ -23,6 +23,7 @@ extern uint32_t PKT_SIZE;
 extern char *VARIANT;
 extern uint64_t ERTT;
 extern uint64_t TIMEOUT;
+extern uint32_t TESTING_PERIOD;
 struct tcp_packet_entry
 {
   TAILQ_ENTRY (tcp_packet_entry) entry;
