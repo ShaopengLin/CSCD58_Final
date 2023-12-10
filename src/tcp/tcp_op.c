@@ -8,7 +8,6 @@
 uint32_t SEQNUM;
 uint32_t RWND;
 
-
 void *
 tcp_check_timeout ()
 {
@@ -125,7 +124,7 @@ tcp_handshake (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
 {
   // TCP header
   tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
-  uint8_t mac;
+  uint8_t mac[6];
   uint32_t src_ip;
   get_mac_ip (find_active_interface (), &mac, &src_ip);
 
@@ -158,7 +157,7 @@ tcp_stop_and_wait (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
   size_t size = 1460;
   uint32_t quotient = num_byte / size;
   uint32_t remainder = num_byte % size;
-  uint8_t mac;
+  uint8_t mac[6];
   uint32_t src_ip;
   get_mac_ip (find_active_interface (), &mac, &src_ip);
 
@@ -215,7 +214,7 @@ tcp_send_sliding_window_fixed (uint16_t src_port, uint16_t dst_port,
   uint32_t next_size
       = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
 
-  uint8_t mac;
+  uint8_t mac[6];
   uint32_t src_ip;
   get_mac_ip (find_active_interface (), &mac, &src_ip);
 
@@ -347,7 +346,7 @@ tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
       = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
   bool is_AIMD = false;
 
-  uint8_t mac;
+  uint8_t mac[6];
   uint32_t src_ip;
   get_mac_ip (find_active_interface (), &mac, &src_ip);
 
@@ -397,9 +396,6 @@ tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
           uint32_t e_ack = ntohl (ckq_e->hdr->ack_num);
           if (e_ack > MAX_ACK)
             break;
-          TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
-          free (ckq_e->hdr);
-          free (ckq_e);
           WND_SENT -= ckq_e->len;
           num_packet--;
 
@@ -427,6 +423,9 @@ tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
             }
           if (CWND > RWND)
             CWND = RWND;
+          TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
+          free (ckq_e->hdr);
+          free (ckq_e);
         }
 
       /* Find repeating ACK count for the head packet */
@@ -548,7 +547,7 @@ tcp_teardown (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
 {
   // TCP header
   tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
-  uint8_t mac;
+  uint8_t mac[6];
   uint32_t src_ip;
   get_mac_ip (find_active_interface (), &mac, &src_ip);
 
