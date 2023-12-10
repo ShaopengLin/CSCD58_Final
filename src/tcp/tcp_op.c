@@ -1,13 +1,12 @@
 #include "tcp_op.h"
+#include "../ip_stack/sendpacket.h"
 #include "mt19937ar.h"
-#include "sendpacket.h"
 #include <netinet/ip.h> // the IP protocol
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 uint32_t SEQNUM;
 uint32_t RWND;
-
 uint64_t
 SEC_TO_NS (time_t sec)
 {
@@ -141,39 +140,18 @@ tcp_add_sw_packet (uint32_t target_ack, uint64_t sent_time, uint64_t timeout,
 }
 
 uint32_t
-tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin)
+tcp_handshake (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
+               uint8_t *dest_mac)
 {
-  // Datagram to represent the packet
-  char datagram[4096];
-  memset (datagram, 0, 4096);
-  struct iphdr *iph = (struct iphdr *)datagram;
-  uint16_t dst_port = ntohs (sin.sin_port);
   // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram + sizeof (struct iphdr));
-
-  iph->ihl = 5;
-  iph->version = 4;
-  iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t);
-  iph->id = htonl (54321); // Id of this packet
-  iph->frag_off = 0;
-  iph->ttl = 255;
-  iph->protocol = IPPROTO_TCP;
-  iph->check = 0;      // Set to 0 before calculating checksum
-  iph->saddr = src_ip; // Spoof the source ip address
-  iph->daddr = sin.sin_addr.s_addr;
-
-  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+  tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
+  uint8_t mac;
+  uint32_t src_ip;
+  get_mac_ip (find_active_interface (), &mac, &src_ip);
 
   /* Send TCP SYN packet */
-  tcp_gen_syn (tcph, src_ip, sin.sin_addr.s_addr, 1234, dst_port, SEQNUM,
-               5840);
-  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-              sizeof (sin))
-      < 0)
-    {
-      exit (-1);
-    }
+  tcp_gen_syn (tcph, src_ip, dest_ip, src_port, dst_port, SEQNUM, 5840);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
 
   /* Recieve TCP SYN ACK */
   SEQNUM++;
@@ -183,63 +161,41 @@ tcp_handshake (int socket, in_addr_t src_ip, struct sockaddr_in sin)
   RWND = ntohs (synack_hdr->window);
   printf ("\nWINDOW: %u\n", RWND);
   free (synack_hdr);
+
   /* Send TCP ACKs */
-  tcp_gen_ack (tcph, src_ip, sin.sin_addr.s_addr, 1234, dst_port, SEQNUM,
-               ack_num, 5840);
+  tcp_gen_ack (tcph, src_ip, dest_ip, src_port, dst_port, SEQNUM, ack_num,
+               5840);
 
-  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-              sizeof (sin))
-      < 0)
-    {
-      exit (-1);
-    }
-
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
+  free (tcph);
   return ack_num;
 }
 
 uint32_t
-tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
-                   uint32_t ack_num, uint32_t num_byte)
+tcp_stop_and_wait (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
+                   uint8_t *dest_mac, uint32_t ack_num, uint32_t num_byte)
 {
   size_t size = 1460;
   uint32_t quotient = num_byte / size;
   uint32_t remainder = num_byte % size;
+  uint8_t mac;
+  uint32_t src_ip;
+  get_mac_ip (find_active_interface (), &mac, &src_ip);
 
   char datagram[4096];
   memset (datagram, 0, 4096);
-  uint8_t *data
-      = (uint8_t *)(datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t));
+  uint8_t *data = (uint8_t *)(datagram + sizeof (tcp_hdr_t));
   strcpy ((char *)data, "A");
-  struct iphdr *iph = (struct iphdr *)datagram;
-  uint16_t dst_port = ntohs (sin.sin_port);
   // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram + sizeof (struct iphdr));
-
-  iph->ihl = 5;
-  iph->version = 4;
-  iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + size;
-  iph->id = htonl (54321); // Id of this packet
-  iph->frag_off = 0;
-  iph->ttl = 255;
-  iph->protocol = IPPROTO_TCP;
-  iph->check = 0;      // Set to 0 before calculating checksum
-  iph->saddr = src_ip; // Spoof the source ip address
-  iph->daddr = sin.sin_addr.s_addr;
-
-  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
+  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram);
 
   while (quotient != 0)
     {
-      tcp_gen_packet (tcph, (uint8_t *)data, size, src_ip, sin.sin_addr.s_addr,
-                      1234, dst_port, SEQNUM, ack_num,
+      tcp_gen_packet (tcph, (uint8_t *)data, size, src_ip, dest_ip, src_port,
+                      dst_port, SEQNUM, ack_num,
                       (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
-      if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-                  sizeof (sin))
-          < 0)
-        {
-          exit (-1);
-        }
+      warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + size, dest_ip,
+                            dest_mac);
       SEQNUM += size;
       free (tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
                              (uint8_t)(ACK_FLAG)));
@@ -248,18 +204,11 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
 
   if (remainder == 0)
     return ack_num;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + remainder;
-  iph->check = 0;
-  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
-  tcp_gen_packet (tcph, (uint8_t *)data, remainder, src_ip,
-                  sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
-                  (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
-  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-              sizeof (sin))
-      < 0)
-    {
-      exit (-1);
-    }
+  tcp_gen_packet (tcph, (uint8_t *)data, remainder, src_ip, dest_ip, src_port,
+                  dst_port, SEQNUM, ack_num, (uint8_t)(PSH_FLAG | ACK_FLAG),
+                  5840);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + remainder, dest_ip,
+                        dest_mac);
   SEQNUM += remainder;
   tcp_hdr_t *dataack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
                                             (uint8_t)(ACK_FLAG));
@@ -269,9 +218,9 @@ tcp_stop_and_wait (int socket, in_addr_t src_ip, struct sockaddr_in sin,
 }
 
 uint32_t
-tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
-                               struct sockaddr_in sin, uint32_t ack_num,
-                               uint32_t num_byte)
+tcp_send_sliding_window_fixed (uint16_t src_port, uint16_t dst_port,
+                               uint32_t *dest_ip, uint8_t *dest_mac,
+                               uint32_t ack_num, uint32_t num_byte)
 
 {
   size_t size = 1460;
@@ -285,28 +234,16 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
   uint32_t BYTE_SENT = 0;
   uint32_t next_size
       = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
+
+  uint8_t mac;
+  uint32_t src_ip;
+  get_mac_ip (find_active_interface (), &mac, &src_ip);
+
   char datagram[4096];
   memset (datagram, 0, 4096);
-  uint8_t *data
-      = (uint8_t *)(datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t));
-  struct iphdr *iph = (struct iphdr *)datagram;
-  uint16_t dst_port = ntohs (sin.sin_port);
+  uint8_t *data = (uint8_t *)(datagram + sizeof (tcp_hdr_t));
   // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram + sizeof (struct iphdr));
-
-  iph->ihl = 5;
-  iph->version = 4;
-  iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + next_size;
-  iph->id = htonl (54321); // Id of this packet
-  iph->frag_off = 0;
-  iph->ttl = 255;
-  iph->protocol = IPPROTO_TCP;
-  iph->check = 0;      // Set to 0 before calculating checksum
-  iph->saddr = src_ip; // Spoof the source ip address
-  iph->daddr = sin.sin_addr.s_addr;
-
-  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
+  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram);
 
   while (num_packet != 0)
     {
@@ -329,7 +266,6 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
             SEQNUM = ntohl (ckq_e->hdr->ack_num) - ckq_e->len;
             printf ("%u\n", (SEQNUM - INITSEQ) / size);
             retrans = true;
-            perror ("RETRANSMIT");
             break;
           }
       }
@@ -390,24 +326,11 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
       /* Start sending, increment SENT decrement quotient. */
       while (WND_SENT + next_size <= CWND && BYTE_SENT < num_byte)
         {
-          if (next_size != size)
-            {
-              iph->tot_len
-                  = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + next_size;
-              iph->check = 0;
-              iph->check = tcp_cksum ((unsigned short *)datagram,
-                                      sizeof (struct iphdr));
-            }
-          sprintf ((char *)data, "%u ", BYTE_SENT / size);
-          tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip,
-                          sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
+          tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip, dest_ip,
+                          src_port, dst_port, SEQNUM, ack_num,
                           (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
-          if (sendto (socket, datagram, iph->tot_len, 0,
-                      (struct sockaddr *)&sin, sizeof (sin))
-              < 0)
-            {
-              exit (-1);
-            }
+          warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + next_size, dest_ip,
+                                dest_mac);
           BYTE_SENT += next_size;
           SEQNUM += next_size;
           WND_SENT += next_size;
@@ -421,9 +344,9 @@ tcp_send_sliding_window_fixed (int socket, in_addr_t src_ip,
   return ack_num;
 }
 uint32_t
-tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
-                              struct sockaddr_in sin, uint32_t ack_num,
-                              uint32_t num_byte)
+tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
+                                     uint32_t *dest_ip, uint8_t *dest_mac,
+                                     uint32_t ack_num, uint32_t num_byte)
 {
   size_t size = 1460;
   uint32_t num_packet = num_byte / size;
@@ -443,28 +366,16 @@ tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
   uint32_t next_size
       = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
   bool is_AIMD = false;
+
+  uint8_t mac;
+  uint32_t src_ip;
+  get_mac_ip (find_active_interface (), &mac, &src_ip);
+
   char datagram[4096];
   memset (datagram, 0, 4096);
-  uint8_t *data
-      = (uint8_t *)(datagram + sizeof (struct iphdr) + sizeof (tcp_hdr_t));
-  struct iphdr *iph = (struct iphdr *)datagram;
-  uint16_t dst_port = ntohs (sin.sin_port);
   // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram + sizeof (struct iphdr));
-
-  iph->ihl = 5;
-  iph->version = 4;
-  iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + next_size;
-  iph->id = htonl (54321); // Id of this packet
-  iph->frag_off = 0;
-  iph->ttl = 255;
-  iph->protocol = IPPROTO_TCP;
-  iph->check = 0;      // Set to 0 before calculating checksum
-  iph->saddr = src_ip; // Spoof the source ip address
-  iph->daddr = sin.sin_addr.s_addr;
-
-  iph->check = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
+  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram);
+  uint8_t *data = (uint8_t *)(datagram + sizeof (tcp_hdr_t));
   while (num_packet != 0)
     {
 
@@ -574,22 +485,12 @@ tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
           ckq_e = TAILQ_FIRST (&tcp_ckq);
           TimeOut = 2 * TimeOut;
           // perror ("FASTRRRRR");
-          iph->tot_len
-              = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + ckq_e->len;
-          iph->check = 0;
-          iph->check
-              = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
-
-          tcp_gen_packet (tcph, (uint8_t *)data, ckq_e->len, src_ip,
-                          sin.sin_addr.s_addr, 1234, dst_port,
+          tcp_gen_packet (tcph, (uint8_t *)data, ckq_e->len, src_ip, dest_ip,
+                          src_port, dst_port,
                           ntohl (ckq_e->hdr->ack_num) - ckq_e->len, ack_num,
                           (uint8_t)(PSH_FLAG | ACK_FLAG), 65535);
-          if (sendto (socket, datagram, iph->tot_len, 0,
-                      (struct sockaddr *)&sin, sizeof (sin))
-              < 0)
-            {
-              exit (-1);
-            }
+          warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + ckq_e->len, dest_ip,
+                                dest_mac);
           ckq_e->sent_time = curTime;
           ckq_e->timeout = curTime + (TimeOut == 0 ? DEFAULT_RTO : TimeOut);
           CWND = CWND / 2 < size ? size : CWND / 2;
@@ -616,22 +517,12 @@ tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
           TimeOut = 2 * TimeOut;
           TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
           {
-            iph->tot_len
-                = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + ckq_e->len;
-            iph->check = 0;
-            iph->check = tcp_cksum ((unsigned short *)datagram,
-                                    sizeof (struct iphdr));
-
-            tcp_gen_packet (tcph, (uint8_t *)data, ckq_e->len, src_ip,
-                            sin.sin_addr.s_addr, 1234, dst_port,
+            tcp_gen_packet (tcph, (uint8_t *)data, ckq_e->len, src_ip, dest_ip,
+                            src_port, dst_port,
                             ntohl (ckq_e->hdr->ack_num) - ckq_e->len, ack_num,
                             (uint8_t)(PSH_FLAG | ACK_FLAG), 65535);
-            if (sendto (socket, datagram, iph->tot_len, 0,
-                        (struct sockaddr *)&sin, sizeof (sin))
-                < 0)
-              {
-                exit (-1);
-              }
+            warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + ckq_e->len,
+                                  dest_ip, dest_mac);
             ckq_e->sent_time = curTime;
             ckq_e->timeout = curTime + (TimeOut == 0 ? DEFAULT_RTO : TimeOut);
             ckq_e->rAck = 0;
@@ -651,21 +542,11 @@ tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
       while (WND_SENT + next_size <= CWND && BYTE_SENT < num_byte)
         {
 
-          iph->tot_len
-              = sizeof (struct iphdr) + sizeof (tcp_hdr_t) + next_size;
-          iph->check = 0;
-          iph->check
-              = tcp_cksum ((unsigned short *)datagram, sizeof (struct iphdr));
-
-          tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip,
-                          sin.sin_addr.s_addr, 1234, dst_port, SEQNUM, ack_num,
+          tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip, dest_ip,
+                          src_port, dst_port, SEQNUM, ack_num,
                           (uint8_t)(PSH_FLAG | ACK_FLAG), 65535);
-          if (sendto (socket, datagram, iph->tot_len, 0,
-                      (struct sockaddr *)&sin, sizeof (sin))
-              < 0)
-            {
-              exit (-1);
-            }
+          warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + next_size, dest_ip,
+                                dest_mac);
           BYTE_SENT += next_size;
           SEQNUM += next_size;
           WND_SENT += next_size;
@@ -682,40 +563,19 @@ tcp_send_sliding_window_test (int socket, in_addr_t src_ip,
 }
 
 void
-tcp_teardown (int socket, in_addr_t src_ip, struct sockaddr_in sin,
-              uint32_t ack_num)
+tcp_teardown (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
+              uint8_t *dest_mac, uint32_t ack_num)
 {
-  // Datagram to represent the packet
-  char datagram[4096];
-  memset (datagram, 0, 4096);
-  struct iphdr *iph = (struct iphdr *)datagram;
-  uint16_t dst_port = ntohs (sin.sin_port);
   // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram + sizeof (struct iphdr));
-
-  iph->ihl = 5;
-  iph->version = 4;
-  iph->tos = 0;
-  iph->tot_len = sizeof (struct iphdr) + sizeof (tcp_hdr_t);
-  iph->id = htonl (54321); // Id of this packet
-  iph->frag_off = 0;
-  iph->ttl = 255;
-  iph->protocol = IPPROTO_TCP;
-  iph->check = 0;      // Set to 0 before calculating checksum
-  iph->saddr = src_ip; // Spoof the source ip address
-  iph->daddr = sin.sin_addr.s_addr;
-
-  iph->check = tcp_cksum ((unsigned short *)datagram, iph->tot_len);
+  tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
+  uint8_t mac;
+  uint32_t src_ip;
+  get_mac_ip (find_active_interface (), &mac, &src_ip);
 
   /* Send TCP FIN ACK packet */
-  tcp_gen_packet (tcph, 0, 0, src_ip, sin.sin_addr.s_addr, 1234, dst_port,
-                  SEQNUM, ack_num, (uint8_t)(FIN_FLAG | ACK_FLAG), 5840);
-  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-              sizeof (sin))
-      < 0)
-    {
-      exit (-1);
-    }
+  tcp_gen_packet (tcph, 0, 0, src_ip, dest_ip, src_port, dst_port, SEQNUM,
+                  ack_num, (uint8_t)(FIN_FLAG | ACK_FLAG), 5840);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
 
   /* Recieve TCP FIN ACK */
   SEQNUM++;
@@ -724,13 +584,8 @@ tcp_teardown (int socket, in_addr_t src_ip, struct sockaddr_in sin,
   ack_num = ntohl (finack_hdr->seq_num) + 1;
   free (finack_hdr);
   /* Send TCP ACK */
-  tcp_gen_packet (tcph, 0, 0, src_ip, sin.sin_addr.s_addr, 1234, dst_port,
-                  SEQNUM, ack_num, (uint8_t)(ACK_FLAG), 5840);
 
-  if (sendto (socket, datagram, iph->tot_len, 0, (struct sockaddr *)&sin,
-              sizeof (sin))
-      < 0)
-    {
-      exit (-1);
-    }
+  tcp_gen_packet (tcph, 0, 0, src_ip, dest_ip, src_port, dst_port, SEQNUM,
+                  ack_num, (uint8_t)(ACK_FLAG), 5840);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
 }
