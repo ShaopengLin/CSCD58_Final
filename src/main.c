@@ -6,6 +6,7 @@
 #include "tcp/tcp_helpers.h"
 #include "tcp/tcp_op.h"
 #include "tcp/tcp_protocol.h"
+#include "tcp/tcp_stat.h"
 #include <arpa/inet.h> // inet_addr
 #include <errno.h>     //For errno - the error number
 #include <linux/if_packet.h>
@@ -129,6 +130,8 @@ main (int argc, char **argv)
   memcpy (DST_MAC, receive_arp_header->sha, 6);
   perror ("Handshaking");
   uint32_t ack_num = tcp_handshake ();
+  printf ("***** TCP Analytics *****\n");
+  printf ("***** \n");
   if (strcmp (VARIANT, "SAW") == 0)
     tcp_stop_and_wait (ack_num);
   else if (strcmp (VARIANT, "SWCC") == 0)
@@ -137,13 +140,59 @@ main (int argc, char **argv)
     tcp_send_sliding_window_fixed (10, ack_num);
   else
     printf ("Invalid Variant %s", VARIANT);
-  // ack_num = tcp_send_sliding_window_test (s, inet_addr (source_ip), sin,
-  //                                         ack_num, num_bytes);
-  // ack_num = tcp_send_sliding_window_fixed (
-  //     1234, PORT, targetIp, receive_arp_header->sha, ack_num, num_bytes);
-
   tcp_teardown (ack_num);
 
+  FILE *fp;
+  fp = fopen ("tcprtt.txt", "w");
+
+  tcp_rtt_entry_t *rtt_e = NULL;
+  int rtt_count = 1;
+  long double rtt_avg = 0;
+  long double rtt_max = 0;
+  long double rtt_min = SEC_TO_NS (20); //  Unlikely to have 20s RTT
+  TAILQ_FOREACH (rtt_e, &tcp_rttQ, entry)
+  {
+    rtt_avg += rtt_e->rtt;
+    rtt_max = rtt_max >= rtt_e->rtt ? rtt_max : rtt_e->rtt;
+    rtt_min = rtt_min < rtt_e->rtt ? rtt_min : rtt_e->rtt;
+    fprintf (fp, "%d %Lf\n", rtt_count, rtt_e->rtt);
+    rtt_count++;
+  }
+  close (fp);
+  rtt_avg = rtt_avg / (rtt_count - 1);
+
+  tcp_bandwidth_entry_t *bw_e = NULL;
+  long double bw = 0;
+  int bandwidth_count = 0;
+  TAILQ_FOREACH (bw_e, &tcp_bwQ, entry)
+  {
+    bw += bw_e->bw;
+    bandwidth_count++;
+  }
+  bw = bw / bandwidth_count;
+
+  tcp_congest_entry_t *cwnd_e = NULL;
+  int cwnd_count = 1;
+
+  fp = fopen ("tcpcong.txt", "w");
+  TAILQ_FOREACH (cwnd_e, &tcp_congQ, entry)
+  {
+    fprintf (fp, "%d %u\n", cwnd_count, cwnd_e->cwnd);
+    cwnd_count++;
+  }
+  printf ("***** Average RTT: %Lf ms\n", rtt_avg);
+  printf ("***** Maximum RTT: %Lf ms\n", rtt_max);
+  printf ("***** Minimum RTT: %Lf ms\n", rtt_min);
+  printf ("***** Bandwidth Estimate: %Lf Kbits/s\n", bw);
+  printf (
+      "***** Sliding Window Size Best Estimate Based on Bandwidth: %Lf byte\n",
+      (rtt_avg / 1000) * (bw * 1000) / 8);
+  printf ("***** \n");
+  printf ("*******************************\n");
   system ("iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP");
+
+  // ... fill the array somehow ...
+
+  fclose (fp);
   return 0;
 }

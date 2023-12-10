@@ -16,15 +16,13 @@ void send_sw (tcp_hdr_t *hdr, uint8_t *data, uint32_t len,
               tcp_check_entry_t *ckq_e, uint32_t ack_num);
 uint32_t handle_SS_inc (uint32_t c_wnd, uint32_t t_wnd, bool *is_AIMD);
 uint32_t get_max_ack (uint32_t max_ack);
-void init_sendQ_packets ();
+void init_sendQ_packets (int32_t *pktgen_seqnum, uint32_t count);
 void handle_SS_fast_retransmit (uint32_t max_ack, uint32_t *c_wnd,
-                                uint32_t *byte_sent, bool *is_AIMD);
-void handle_simple_fast_retransmit (uint32_t *s_wnd, uint32_t max_ack,
-                                    uint32_t *byte_sent);
+                                bool *is_AIMD);
+void handle_simple_fast_retransmit (uint32_t *s_wnd, uint32_t max_ack);
 void handle_SS_timeout_retransmit (uint64_t curTime, uint32_t *t_cwnd,
                                    uint32_t *c_wnd, uint32_t *s_wnd,
-                                   uint32_t *byte_sent, bool *is_AIMD);
-void handle_simple_timeout_retransmit (uint32_t *s_wnd, uint32_t *byte_sent,
-                                       uint64_t curTime);
+                                   bool *is_AIMD);
+void handle_simple_timeout_retransmit (uint32_t *s_wnd, uint64_t curTime);
 
 #endif /* -- TCP_HELPERS_H -- */
