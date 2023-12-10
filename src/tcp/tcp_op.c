@@ -1,12 +1,14 @@
 #include "tcp_op.h"
 #include "../ip_stack/sendpacket.h"
 #include "mt19937ar.h"
+#include "tcp_helpers.h"
 #include <netinet/ip.h> // the IP protocol
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-uint32_t SEQNUM;
+
 uint32_t RWND;
+char DATAGRAM[4096];
 
 void *
 tcp_check_timeout ()
@@ -42,303 +44,201 @@ handle_tcp (tcp_hdr_t *hdr)
     }
 }
 
-tcp_hdr_t *
-tcp_wait_packet (uint32_t target_ack, uint64_t timeout, uint8_t flag)
-{
-  tcp_check_entry_t *syn_check
-      = (tcp_check_entry_t *)calloc (1, sizeof (tcp_check_entry_t));
-  syn_check->timeout = timeout;
-  syn_check->hdr = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
-  tcp_gen_packet (syn_check->hdr, NULL, 0, 0, 0, 0, 0, 0, target_ack, flag, 0);
-  pthread_mutex_lock (&inq_lock);
-  TAILQ_INSERT_TAIL (&tcp_ckq, syn_check, entry);
-  pthread_mutex_unlock (&inq_lock);
-  while (1)
-    {
-      // Shouldn't happen
-      if (TAILQ_EMPTY (&tcp_ckq))
-        return NULL;
-
-      tcp_packet_entry_t *inq_e = NULL;
-      tcp_check_entry_t *ckq_e = NULL;
-      pthread_mutex_lock (&inq_lock);
-      while (TAILQ_EMPTY (&tcp_inq))
-        pthread_cond_wait (&inq_cond, &inq_lock);
-
-      TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
-      {
-        TAILQ_FOREACH (inq_e, &tcp_inq, entry)
-        {
-          /* Match packet */
-          if (tcp_cmp_flag (inq_e->hdr, ckq_e->hdr)
-              && inq_e->hdr->ack_num == ckq_e->hdr->ack_num)
-            {
-              tcp_hdr_t *ret = inq_e->hdr;
-              TAILQ_REMOVE (&tcp_inq, inq_e, entry);
-              TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
-              free (ckq_e->hdr);
-              free (inq_e);
-              free (ckq_e);
-              pthread_mutex_unlock (&inq_lock);
-              return ret;
-            }
-        }
-
-        /* Timeout */
-
-        if (ckq_e->timeout <= getNano ())
-          {
-            printf ("Timeout\n");
-            TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
-            pthread_mutex_unlock (&inq_lock);
-            return NULL;
-          }
-      }
-      pthread_mutex_unlock (&inq_lock);
-    }
-
-  return NULL;
-}
-
-void
-tcp_add_sw_packet (uint32_t target_ack, uint64_t sent_time, uint64_t timeout,
-                   size_t len)
-{
-  tcp_check_entry_t *syn_check
-      = (tcp_check_entry_t *)calloc (1, sizeof (tcp_check_entry_t));
-  syn_check->sent_time = sent_time;
-  syn_check->timeout = sent_time + timeout;
-  syn_check->hdr = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
-  syn_check->len = len;
-  syn_check->RTT_counted = false;
-  syn_check->rAck = 0;
-  syn_check->retransmitted = false;
-  tcp_gen_packet (syn_check->hdr, NULL, 0, 0, 0, 0, 0, 0, target_ack,
-                  (uint8_t)(ACK_FLAG), 0);
-  TAILQ_INSERT_TAIL (&tcp_ckq, syn_check, entry);
-}
-
 uint32_t
-tcp_handshake (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
-               uint8_t *dest_mac)
+tcp_handshake ()
 {
   // TCP header
   tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
-  uint8_t mac[6];
-  uint32_t src_ip;
-  char *iface = find_active_interface ();
-  get_mac_ip (iface, &mac, &src_ip);
-  free (iface);
 
   /* Send TCP SYN packet */
-  tcp_gen_syn (tcph, src_ip, dest_ip, src_port, dst_port, SEQNUM, 5840);
-  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
+  tcp_gen_syn (tcph, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SEQNUM, 65535);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), DST_IP, DST_MAC);
 
   /* Recieve TCP SYN ACK */
   SEQNUM++;
-  tcp_hdr_t *synack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
-                                           (uint8_t)(SYN_FLAG | ACK_FLAG));
+  tcp_hdr_t *synack_hdr
+      = tcp_wait_packet (tcph, 1, getNano (), (uint8_t)(SYN_FLAG | ACK_FLAG));
+
   uint32_t ack_num = ntohl (synack_hdr->seq_num) + 1;
+
+  // Initializes RWND from TCP SYNACK
   RWND = ntohs (synack_hdr->window);
+
   printf ("\nWINDOW: %u\n", RWND);
   free (synack_hdr);
 
   /* Send TCP ACKs */
-  tcp_gen_ack (tcph, src_ip, dest_ip, src_port, dst_port, SEQNUM, ack_num,
-               5840);
+  tcp_gen_ack (tcph, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SEQNUM, ack_num,
+               65535);
 
-  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), DST_IP, DST_MAC);
+
   free (tcph);
   return ack_num;
 }
 
-uint32_t
-tcp_stop_and_wait (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
-                   uint8_t *dest_mac, uint32_t ack_num, uint32_t num_byte)
+void
+tcp_stop_and_wait (uint32_t ack_num)
 {
-  size_t size = 1460;
-  uint32_t quotient = num_byte / size;
-  uint32_t remainder = num_byte % size;
-  uint8_t mac[6];
-  uint32_t src_ip;
-  char *iface = find_active_interface ();
-  get_mac_ip (iface, &mac, &src_ip);
-  free (iface);
-
-  char datagram[4096];
-  memset (datagram, 0, 4096);
-  uint8_t *data = (uint8_t *)(datagram + sizeof (tcp_hdr_t));
-  strcpy ((char *)data, "A");
-  // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram);
-
-  while (quotient != 0)
-    {
-      tcp_gen_packet (tcph, (uint8_t *)data, size, src_ip, dest_ip, src_port,
-                      dst_port, SEQNUM, ack_num,
-                      (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
-      warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + size, dest_ip,
-                            dest_mac);
-      SEQNUM += size;
-      free (tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
-                             (uint8_t)(ACK_FLAG)));
-      quotient--;
-    }
-
-  if (remainder == 0)
-    return ack_num;
-  tcp_gen_packet (tcph, (uint8_t *)data, remainder, src_ip, dest_ip, src_port,
-                  dst_port, SEQNUM, ack_num, (uint8_t)(PSH_FLAG | ACK_FLAG),
-                  5840);
-  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + remainder, dest_ip,
-                        dest_mac);
-  SEQNUM += remainder;
-  tcp_hdr_t *dataack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
-                                            (uint8_t)(ACK_FLAG));
-  ack_num = ntohl (dataack_hdr->seq_num);
-  free (dataack_hdr);
-  return ack_num;
-}
-
-uint32_t
-tcp_send_sliding_window_fixed (uint16_t src_port, uint16_t dst_port,
-                               uint32_t *dest_ip, uint8_t *dest_mac,
-                               uint32_t ack_num, uint32_t num_byte)
-
-{
-  size_t size = 1460;
-  uint32_t num_packet = num_byte / size;
-  num_packet += num_byte % size > 0 ? 1 : 0;
-  uint32_t MAX_ACK = SEQNUM;
-  uint32_t CWND = 80 * size;
-  uint32_t INITSEQ = SEQNUM;
-
-  uint32_t WND_SENT = 0;
-  uint32_t BYTE_SENT = 0;
+  uint32_t byte_sent = 0;
   uint32_t next_size
-      = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
+      = NUM_BYTES - byte_sent >= PKT_SIZE ? PKT_SIZE : NUM_BYTES - byte_sent;
 
-  uint8_t mac[6];
-  uint32_t src_ip;
-  char *iface = find_active_interface ();
-  get_mac_ip (iface, &mac, &src_ip);
-  free (iface);
+  /* Init Data*/
+  memset (DATAGRAM, 0, 4096);
+  uint8_t *data = (uint8_t *)(DATAGRAM + sizeof (tcp_hdr_t));
 
-  char datagram[4096];
-  memset (datagram, 0, 4096);
-  uint8_t *data = (uint8_t *)(datagram + sizeof (tcp_hdr_t));
   // TCP header
-  tcp_hdr_t *tcph = (tcp_hdr_t *)(datagram);
+  tcp_hdr_t *tcph = (tcp_hdr_t *)(DATAGRAM);
 
-  while (num_packet != 0)
+  while (NUM_BYTES > byte_sent)
     {
-      pthread_mutex_lock (&inq_lock);
-      // printf ("QUOTIENT: %u\n", quotient);
-      /* When CWND full, we restart only when new packets or timeout happen
-       */
-      if (WND_SENT + next_size > CWND)
-        {
-          pthread_cond_wait (&inq_cond, &inq_lock);
-        }
-      /* Handle Timeout. Later need to do retransmit, changing SENT and SEQ
-       */
-      tcp_check_entry_t *ckq_e = NULL;
-      bool retrans = false;
-      TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
-      {
-        if (ckq_e->timeout <= getNano ())
-          {
-            SEQNUM = ntohl (ckq_e->hdr->ack_num) - ckq_e->len;
-            printf ("%u\n", (SEQNUM - INITSEQ) / size);
-            retrans = true;
-            break;
-          }
-      }
-
-      tcp_packet_entry_t *inq_e = NULL;
-      ckq_e = NULL;
-      if (retrans)
-        {
-          while (!TAILQ_EMPTY (&tcp_ckq))
-            {
-              ckq_e = TAILQ_FIRST (&tcp_ckq);
-              TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
-              BYTE_SENT -= ckq_e->len;
-              free (ckq_e->hdr);
-              free (ckq_e);
-            }
-          while (!TAILQ_EMPTY (&tcp_inq))
-            {
-              inq_e = TAILQ_FIRST (&tcp_inq);
-              TAILQ_REMOVE (&tcp_inq, inq_e, entry);
-              free (inq_e->hdr);
-              free (inq_e);
-            }
-          next_size
-              = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
-          WND_SENT = 0;
-        }
-
-      /* Handle current recieved packet. The update max ack, and consider
-         packets will <= ack recieved.
-       */
-      while (!TAILQ_EMPTY (&tcp_inq))
-        {
-          inq_e = TAILQ_FIRST (&tcp_inq);
-          uint32_t e_ack = ntohl (inq_e->hdr->ack_num);
-          MAX_ACK = MAX_ACK < e_ack ? e_ack : MAX_ACK;
-
-          TAILQ_REMOVE (&tcp_inq, inq_e, entry);
-          free (inq_e->hdr);
-          free (inq_e);
-        }
-      /* Continued, remove ckq entries with less than MAX_ACK and update
-      window
-       */
-      while (!TAILQ_EMPTY (&tcp_ckq))
-        {
-          ckq_e = TAILQ_FIRST (&tcp_ckq);
-          uint32_t e_ack = ntohl (ckq_e->hdr->ack_num);
-          if (e_ack > MAX_ACK)
-            break;
-          TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
-          free (ckq_e->hdr);
-          free (ckq_e);
-          WND_SENT -= ckq_e->len;
-          num_packet--;
-        }
-
-      /* Start sending, increment SENT decrement quotient. */
-      while (WND_SENT + next_size <= CWND && BYTE_SENT < num_byte)
-        {
-          tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip, dest_ip,
-                          src_port, dst_port, SEQNUM, ack_num,
-                          (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
-          warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + next_size, dest_ip,
-                                dest_mac);
-          BYTE_SENT += next_size;
-          SEQNUM += next_size;
-          WND_SENT += next_size;
-
-          tcp_add_sw_packet (SEQNUM, getNano (), DEFAULT_RTO, next_size);
-          next_size
-              = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
-        }
-      pthread_mutex_unlock (&inq_lock);
+      tcp_gen_packet (tcph, data, next_size, SRC_IP, DST_IP, SRC_PORT,
+                      DST_PORT, SEQNUM, ack_num,
+                      (uint8_t)(PSH_FLAG | ACK_FLAG), 65535);
+      warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + next_size, DST_IP,
+                            DST_MAC);
+      SEQNUM += next_size;
+      free (
+          tcp_wait_packet (tcph, next_size, getNano (), (uint8_t)(ACK_FLAG)));
+      byte_sent += next_size;
+      next_size = NUM_BYTES - byte_sent >= PKT_SIZE ? PKT_SIZE
+                                                    : NUM_BYTES - byte_sent;
     }
-  return ack_num;
 }
+
+// uint32_t
+// tcp_send_sliding_window_fixed (uint32_t window_size, uint32_t ack_num)
+
+// {
+//   uint32_t num_packet = NUM_BYTES / PKT_SIZE;
+//   num_packet += NUM_BYTES % PKT_SIZE > 0 ? 1 : 0;
+//   uint32_t MAX_ACK = SEQNUM;
+//   uint32_t CWND = window_size * PKT_SIZE;
+//   uint32_t INITSEQ = SEQNUM;
+
+//   uint32_t WND_SENT = 0;
+//   uint32_t BYTE_SENT = 0;
+//   uint32_t next_size
+//       = NUM_BYTES - BYTE_SENT >= PKT_SIZE ? PKT_SIZE : NUM_BYTES -
+//       BYTE_SENT;
+
+//   /* Init Data*/
+//   memset (DATAGRAM, 0, 4096);
+//   uint8_t *data = (uint8_t *)(DATAGRAM + sizeof (tcp_hdr_t));
+
+//   // TCP header
+//   tcp_hdr_t *tcph = (tcp_hdr_t *)(DATAGRAM);
+
+//   while (num_packet != 0)
+//     {
+//       pthread_mutex_lock (&inq_lock);
+
+//       /* When CWND full, we restart only when new packets or timeout happen
+//        */
+//       if (WND_SENT + next_size > CWND)
+//         {
+//           pthread_cond_wait (&inq_cond, &inq_lock);
+//         }
+
+//       /* Handle Timeout. Later need to do retransmit, changing SENT and SEQ
+//        */
+//       tcp_check_entry_t *ckq_e = NULL;
+//       bool retrans = false;
+//       TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
+//       {
+//         if (ckq_e->timeout <= getNano ())
+//           {
+//             SEQNUM = ntohl (ckq_e->hdr->ack_num) - ckq_e->len;
+//             printf ("%u\n", (SEQNUM - INITSEQ) / size);
+//             retrans = true;
+//             break;
+//           }
+//       }
+
+//       tcp_packet_entry_t *inq_e = NULL;
+//       ckq_e = NULL;
+//       if (retrans)
+//         {
+//           while (!TAILQ_EMPTY (&tcp_ckq))
+//             {
+//               ckq_e = TAILQ_FIRST (&tcp_ckq);
+//               TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
+//               BYTE_SENT -= ckq_e->len;
+//               free (ckq_e->hdr);
+//               free (ckq_e);
+//             }
+//           while (!TAILQ_EMPTY (&tcp_inq))
+//             {
+//               inq_e = TAILQ_FIRST (&tcp_inq);
+//               TAILQ_REMOVE (&tcp_inq, inq_e, entry);
+//               free (inq_e->hdr);
+//               free (inq_e);
+//             }
+//           next_size
+//               = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
+//           WND_SENT = 0;
+//         }
+
+//       /* Handle current recieved packet. The update max ack, and consider
+//          packets will <= ack recieved.
+//        */
+//       while (!TAILQ_EMPTY (&tcp_inq))
+//         {
+//           inq_e = TAILQ_FIRST (&tcp_inq);
+//           uint32_t e_ack = ntohl (inq_e->hdr->ack_num);
+//           MAX_ACK = MAX_ACK < e_ack ? e_ack : MAX_ACK;
+
+//           TAILQ_REMOVE (&tcp_inq, inq_e, entry);
+//           free (inq_e->hdr);
+//           free (inq_e);
+//         }
+//       /* Continued, remove ckq entries with less than MAX_ACK and update
+//       window
+//        */
+//       while (!TAILQ_EMPTY (&tcp_ckq))
+//         {
+//           ckq_e = TAILQ_FIRST (&tcp_ckq);
+//           uint32_t e_ack = ntohl (ckq_e->hdr->ack_num);
+//           if (e_ack > MAX_ACK)
+//             break;
+//           TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
+//           free (ckq_e->hdr);
+//           free (ckq_e);
+//           WND_SENT -= ckq_e->len;
+//           num_packet--;
+//         }
+
+//       /* Start sending, increment SENT decrement quotient. */
+//       while (WND_SENT + next_size <= CWND && BYTE_SENT < num_byte)
+//         {
+//           tcp_gen_packet (tcph, (uint8_t *)data, next_size, src_ip, dest_ip,
+//                           src_port, dst_port, SEQNUM, ack_num,
+//                           (uint8_t)(PSH_FLAG | ACK_FLAG), 5840);
+//           warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t) + next_size,
+//           dest_ip,
+//                                 dest_mac);
+//           BYTE_SENT += next_size;
+//           SEQNUM += next_size;
+//           WND_SENT += next_size;
+
+//           tcp_add_sw_packet (SEQNUM, getNano (), DEFAULT_RTO, next_size);
+//           next_size
+//               = num_byte - BYTE_SENT >= size ? size : num_byte - BYTE_SENT;
+//         }
+//       pthread_mutex_unlock (&inq_lock);
+//     }
+//   return ack_num;
+// }
+
 uint32_t
-tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
-                                     uint32_t *dest_ip, uint8_t *dest_mac,
-                                     uint32_t ack_num, uint32_t num_byte)
+tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
 {
-  size_t size = 1460;
-  uint32_t num_packet = num_byte / size;
-  num_packet += num_byte % size > 0 ? 1 : 0;
+  uint32_t num_packet = NUM_BYTES / PKT_SIZE;
+  num_packet += NUM_BYTES % PKT_SIZE > 0 ? 1 : 0;
   uint32_t total_packet = num_packet;
   uint32_t MAX_ACK = SEQNUM;
-  uint32_t CWND = size;
+  uint32_t CWND = PKT_SIZE;
   uint32_t INITSEQ = SEQNUM;
   uint32_t WND_SENT = 0;
   RWND = 3810000;
@@ -413,9 +313,9 @@ tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
               EstimatedRTT
                   = (uint64_t)((long double)ALPHA * EstimatedRTT)
                     + (uint64_t)((long double)(1 - ALPHA) * SampleRTT);
-              // TimeOut = 2 * EstimatedRTT;
+              TimeOut = 2 * EstimatedRTT;
             }
-          TimeOut = 2 * EstimatedRTT;
+          // TimeOut = 2 * EstimatedRTT;
           if (is_AIMD)
             {
               CWND += (uint16_t)(size * ((float)size / (float)CWND));
@@ -550,32 +450,25 @@ tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
 }
 
 void
-tcp_teardown (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
-              uint8_t *dest_mac, uint32_t ack_num)
+tcp_teardown (uint32_t ack_num)
 {
   // TCP header
   tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
-  uint8_t mac[6];
-  uint32_t src_ip;
-  char *iface = find_active_interface ();
-  get_mac_ip (iface, &mac, &src_ip);
-  free (iface);
 
   /* Send TCP FIN ACK packet */
-  tcp_gen_packet (tcph, 0, 0, src_ip, dest_ip, src_port, dst_port, SEQNUM,
+  tcp_gen_packet (tcph, 0, 0, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SEQNUM,
                   ack_num, (uint8_t)(FIN_FLAG | ACK_FLAG), 5840);
-  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), DST_IP, DST_MAC);
 
   /* Recieve TCP FIN ACK */
-  SEQNUM++;
-  tcp_hdr_t *finack_hdr = tcp_wait_packet (SEQNUM, getNano () + DEFAULT_RTO,
-                                           (uint8_t)(FIN_FLAG | ACK_FLAG));
+  tcp_hdr_t *finack_hdr
+      = tcp_wait_packet (tcph, 1, getNano (), (uint8_t)(FIN_FLAG | ACK_FLAG));
   ack_num = ntohl (finack_hdr->seq_num) + 1;
   free (finack_hdr);
   /* Send TCP ACK */
 
-  tcp_gen_packet (tcph, 0, 0, src_ip, dest_ip, src_port, dst_port, SEQNUM,
+  tcp_gen_packet (tcph, 0, 0, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SEQNUM,
                   ack_num, (uint8_t)(ACK_FLAG), 5840);
-  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
+  warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), DST_IP, DST_MAC);
   free (tcph);
 }

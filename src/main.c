@@ -2,8 +2,8 @@
         Raw TCP packets
 */
 #include "ip_stack/sendpacket.h"
-#include "pthread.h"
 #include "tcp/mt19937ar.h"
+#include "tcp/tcp_helpers.h"
 #include "tcp/tcp_op.h"
 #include "tcp/tcp_protocol.h"
 #include <arpa/inet.h> // inet_addr
@@ -23,15 +23,21 @@
         96 bit (12 bytes) pseudo header needed for tcp header checksum
    calculation
 */
-uint8_t DEST_MAC[6];
+uint8_t DST_MAC[6];
 
+/* Stop when we recieved ARP reply */
 int arp_header_ready = 0;
 
+// Store instead of cache ARP since we will need to be able to send packets
+// really frequently.
 struct arp_header *receive_arp_header;
-// Function that will run in a separate thread
+
+// Thread Function to ran until end of program. Handles ARP and TCP packet
+// retrieval
 void *
 packet_receiver (void *arg)
 {
+  // Initializes buffers and raw socket to capture packets
   int sock_r = *(int *)arg;
   unsigned char *buffer = (unsigned char *)malloc (65536);
   memset (buffer, 0, 65536);
@@ -50,6 +56,7 @@ packet_receiver (void *arg)
           break; // Exit loop on error
         }
 
+      // We only accept packets coming toward our HOST
       if (saddr.sll_pkttype == PACKET_OUTGOING)
         {
           continue; // Skip processing this packet
@@ -62,9 +69,6 @@ packet_receiver (void *arg)
           printf ("Received ARP packet\n");
           memcpy (receive_arp_header, buffer + sizeof (struct ethhdr),
                   sizeof (struct arp_header));
-
-          memcpy (receive_arp_header, buffer + sizeof (struct ethhdr),
-                  sizeof (struct arp_header));
           arp_check = 0;
           arp_header_ready = 1;
         }
@@ -72,13 +76,7 @@ packet_receiver (void *arg)
         {
           struct iphdr *ip_header
               = (struct iphdr *)(buffer + sizeof (struct ethhdr));
-          if (ip_header->protocol == IPPROTO_ICMP)
-            {
-              printf ("Received ICMP packet\n");
-              // Further processing for ICMP packet
-              print_headers (buffer);
-            }
-          else if (ip_header->protocol == IPPROTO_TCP)
+          if (ip_header->protocol == IPPROTO_TCP)
             {
               tcp_hdr_t *tcp_header
                   = (tcp_hdr_t *)(buffer + sizeof (struct ethhdr)
@@ -94,21 +92,16 @@ packet_receiver (void *arg)
   return NULL;
 }
 
-void
+int
 main (int argc, char **argv)
 {
+  // Resets IP tables settings and drop the auto RST response on ports
+  system ("iptables -P OUTPUT ACCEPT");
+  system ("iptables -F OUTPUT");
   system ("iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP");
 
-  int sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
-  struct sockaddr_ll socket_address;
-  char *iface = find_active_interface ();
-  memset (&socket_address, 0, sizeof (struct sockaddr_ll));
-  socket_address.sll_family = AF_PACKET;
-  socket_address.sll_protocol = htons (ether_arp);
-  socket_address.sll_ifindex = if_nametoindex (iface); // Use iface variable
-  socket_address.sll_halen = ETH_ALEN;
-  initSocket (sockfd, socket_address);
-  free (iface);
+  initializeTCP (argc, argv);
+  // Initializes the socket and resourcesused to recieve packets
   int sock_r;
   pthread_t thread_id;
   receive_arp_header = malloc (sizeof (struct arp_header));
@@ -120,102 +113,34 @@ main (int argc, char **argv)
       return -1;
     }
 
-  init_genrand (0);
-  SEQNUM = genrand_int32 ();
-  const uint32_t PORT = atoi (argv[1]);
-  const uint32_t num_bytes = atoi (argv[2]);
-  TAILQ_INIT (&tcp_inq);
-  TAILQ_INIT (&tcp_ckq);
   pthread_t recv_tid;
-  pthread_t timer_tid;
-  if (pthread_mutex_init (&inq_lock, NULL) != 0)
-    exit (-1);
-  if (pthread_cond_init (&inq_cond, NULL) != 0)
-    exit (-1);
-
-  // Packet Reciever
-
-  // Create a separate thread for receiving packets
   if (pthread_create (&thread_id, NULL, packet_receiver, &sock_r))
     {
       fprintf (stderr, "Error creating thread\n");
       return -1;
     }
 
-  // if (pthread_create (&recv_tid, NULL, &recv_func, NULL) != 0)
-  //   exit (-1);
-  if (pthread_create (&timer_tid, NULL, &tcp_check_timeout, NULL) != 0)
-    exit (-1);
-  // Create a raw socket
-  int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
-  if (s == -1)
-    {
-      // socket creation failed, may be because of non-root privileges
-      perror ("Failed to create socket");
-      exit (1);
-    }
-  // Optionally wait for the thread to finish
-  // pthread_join(thread_id, NULL);
-
-  const char *ip_str = "10.0.0.2";
-  uint32_t targetIp = inet_addr (ip_str);
-
-  if (targetIp == INADDR_NONE)
-    {
-      fprintf (stderr, "Invalid IP address format: %s\n", ip_str);
-      return 1;
-    }
-
-  send_arp_packet (targetIp);
+  send_arp_packet (DST_IP);
   while (!arp_header_ready)
     {
       sleep (1);
     }
-  printf ("1");
-  print_ARP_headers (receive_arp_header);
-  printf ("1");
-  // if (receive_arp_header != NULL)
-  //   {
-  //     // print_ARP_headers(receive_arp_header);
-  //     send_ip_packet (receive_arp_header);
-  //   }
-
-  // close(sock_r);
-  // return 0;
-
-  // Datagram to represent the packet
-  char source_ip[32];
-  struct sockaddr_in sin;
-
-  // some address resolution
-  strcpy (source_ip, "10.0.0.1");
-  sin.sin_family = AF_INET;
-  sin.sin_port = htons (PORT);
-  sin.sin_addr.s_addr = inet_addr ("10.0.0.2");
-
-  // IP_HDRINCL to tell the kernel that headers are included in the packet
-  int one = 1;
-  const int *val = &one;
-
-  if (setsockopt (s, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0)
-    {
-      perror ("Error setting IP_HDRINCL");
-      exit (0);
-    }
-
+  perror ("ARP packet recieved");
+  memcpy (DST_MAC, receive_arp_header->sha, 6);
   perror ("Handshaking");
-  uint32_t ack_num
-      = tcp_handshake (1234, PORT, targetIp, receive_arp_header->sha);
-  // ack_num = tcp_stop_and_wait (1234, PORT, targetIp,
-  // receive_arp_header->sha,
-  //                              ack_num, num_bytes);
+  uint32_t ack_num = tcp_handshake ();
+  if (strcmp (VARIANT, "SW") == 0)
+    tcp_stop_and_wait (ack_num);
+  else
+    printf ("Invalid Variant %s", VARIANT);
   // ack_num = tcp_send_sliding_window_test (s, inet_addr (source_ip), sin,
   //                                         ack_num, num_bytes);
   // ack_num = tcp_send_sliding_window_fixed (
   //     1234, PORT, targetIp, receive_arp_header->sha, ack_num, num_bytes);
-  ack_num = tcp_send_sliding_window_slowS_fastR (
-      1234, PORT, targetIp, receive_arp_header->sha, ack_num, num_bytes);
-  tcp_teardown (1234, PORT, targetIp, receive_arp_header->sha, ack_num);
+  // ack_num = tcp_send_sliding_window_slowS_fastR (
+  //     1234, DST_PORT, DST_IP, receive_arp_header->sha, ack_num, NUM_BYTES);
+  tcp_teardown (ack_num);
 
   system ("iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP");
+  return 0;
 }
