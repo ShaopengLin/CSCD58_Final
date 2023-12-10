@@ -106,7 +106,7 @@ tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
                   ack_num, (uint8_t)(ACK_FLAG), window);
 }
 
-uint8_t
+bool
 tcp_cmp_flag (tcp_hdr_t *hdr1, tcp_hdr_t *hdr2)
 {
   return *(((uint8_t *)hdr1) + FLAG_OFS) == *(((uint8_t *)hdr2) + FLAG_OFS);

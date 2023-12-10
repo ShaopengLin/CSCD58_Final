@@ -20,10 +20,16 @@ int sockfd;
 struct sockaddr_ll socket_address;
 
 int
-initSocket (int fd, struct sockaddr_ll add)
+initTCPSocket ()
 {
-  sockfd = fd;
-  socket_address = add;
+  sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
+  char *iface = find_active_interface ();
+  memset (&socket_address, 0, sizeof (struct sockaddr_ll));
+  socket_address.sll_family = AF_PACKET;
+  socket_address.sll_protocol = htons (ether_arp);
+  socket_address.sll_ifindex = if_nametoindex (iface); // Use iface variable
+  socket_address.sll_halen = ETH_ALEN;
+  free (iface);
 }
 
 char *
