@@ -2,9 +2,9 @@
 #include "utils.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <linux/if.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h> // For ETH_P_ALL
-#include <net/if.h>
 #include <netinet/ether.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -19,9 +19,11 @@
 int sockfd;
 struct sockaddr_ll socket_address;
 
-int initSocket(int fd, struct sockaddr_ll add){
-    sockfd = fd;
-    socket_address = add;
+int
+initSocket (int fd, struct sockaddr_ll add)
+{
+  sockfd = fd;
+  socket_address = add;
 }
 
 char *
@@ -137,6 +139,7 @@ send_arp_packet (uint32_t targetIp)
   free (buffer);
   free (eth); // Free allocated memory
   free (arp); // Free allocated memory
+  free (iface);
   close (sockfd);
 }
 
@@ -191,78 +194,98 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
   free (buffer);
   free (eth);
   free (iph);
+  free (iface);
   return 1;
 }
 
-int send_raw_icmp_packet(uint8_t *buffer, size_t buffer_size) {
-    int sockfd;
-    struct sockaddr_ll socket_address;
-    ssize_t bytes_sent;
+int
+send_raw_icmp_packet (uint8_t *buffer, size_t buffer_size)
+{
+  int sockfd;
+  struct sockaddr_ll socket_address;
+  ssize_t bytes_sent;
 
-    // Create a raw socket that shall be used to send the packet
-    sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-    if (sockfd < 0) {
-        perror("Socket creation failed");
-        return -1;
+  // Create a raw socket that shall be used to send the packet
+  sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
+  if (sockfd < 0)
+    {
+      perror ("Socket creation failed");
+      return -1;
     }
 
-    // Find the index of the interface to send the packet on
-    char *iface = find_active_interface();
-    socket_address.sll_ifindex = if_nametoindex(iface);
-    if (socket_address.sll_ifindex == 0) {
-        perror("Interface not found");
-        close(sockfd);
-        return -1;
+  // Find the index of the interface to send the packet on
+  char *iface = find_active_interface ();
+  socket_address.sll_ifindex = if_nametoindex (iface);
+  if (socket_address.sll_ifindex == 0)
+    {
+      perror ("Interface not found");
+      close (sockfd);
+      return -1;
     }
 
-    // Fill in the destination MAC and other details for the socket_address
-    struct ethhdr *eth = (struct ethhdr *)buffer;
-    socket_address.sll_family = AF_PACKET;
-    socket_address.sll_protocol = htons(ETH_P_IP);
-    socket_address.sll_halen = ETH_ALEN;
-    memcpy(socket_address.sll_addr, eth->h_dest, ETH_ALEN);
+  // Fill in the destination MAC and other details for the socket_address
+  struct ethhdr *eth = (struct ethhdr *)buffer;
+  socket_address.sll_family = AF_PACKET;
+  socket_address.sll_protocol = htons (ETH_P_IP);
+  socket_address.sll_halen = ETH_ALEN;
+  memcpy (socket_address.sll_addr, eth->h_dest, ETH_ALEN);
 
-    // Send the packet
-    bytes_sent = sendto(sockfd, buffer, buffer_size, 0, (struct sockaddr *)&socket_address, sizeof(socket_address));
-    if (bytes_sent < 0) {
-        perror("Packet send failed");
-        close(sockfd);
-        return -1;
+  // Send the packet
+  bytes_sent
+      = sendto (sockfd, buffer, buffer_size, 0,
+                (struct sockaddr *)&socket_address, sizeof (socket_address));
+  if (bytes_sent < 0)
+    {
+      perror ("Packet send failed");
+      close (sockfd);
+      return -1;
     }
 
-    // Close the socket
-    close(sockfd);
-    return 0;
+  // Close the socket
+  close (sockfd);
+  free (iface);
+  return 0;
 }
 
-uint16_t send_ip_packet(struct arp_header* receive_arp_header, int size){
-        size_t send_buffer_size = sizeof(struct eth_header) + sizeof(struct ip_header) + sizeof(struct icmp_echo) + size*sizeof(uint8_t);
-        uint8_t *send_buffer = (uint8_t *)malloc(send_buffer_size);
+uint16_t
+send_ip_packet (struct arp_header *receive_arp_header, int size)
+{
+  size_t send_buffer_size
+      = sizeof (struct eth_header) + sizeof (struct ip_header)
+        + sizeof (struct icmp_echo) + size * sizeof (uint8_t);
+  uint8_t *send_buffer = (uint8_t *)malloc (send_buffer_size);
 
-        struct eth_header* send_eth = calloc(1,sizeof(struct eth_header));
-        create_eth_header(send_eth, receive_arp_header->tha, receive_arp_header->sha, ether_ip);
+  struct eth_header *send_eth = calloc (1, sizeof (struct eth_header));
+  create_eth_header (send_eth, receive_arp_header->tha,
+                     receive_arp_header->sha, ether_ip);
 
-        struct ip_header* send_ip = calloc(1,sizeof(struct ip_header));
-        create_ip_header(send_ip, receive_arp_header->tip, receive_arp_header->sip, ip_protocol_icmp, sizeof(struct ip_header)+sizeof(struct icmp_echo) + size*sizeof(uint8_t));
-        send_ip->checksum = cksum(send_ip, 20+sizeof(struct icmp_header));
+  struct ip_header *send_ip = calloc (1, sizeof (struct ip_header));
+  create_ip_header (send_ip, receive_arp_header->tip, receive_arp_header->sip,
+                    ip_protocol_icmp,
+                    sizeof (struct ip_header) + sizeof (struct icmp_echo)
+                        + size * sizeof (uint8_t));
+  send_ip->checksum = cksum (send_ip, 20 + sizeof (struct icmp_header));
 
-        struct icmp_echo* send_icmp = calloc(1,sizeof(struct icmp_echo) + size*sizeof(uint8_t));
-        create_icmp_echo_header(send_icmp, size);
+  struct icmp_echo *send_icmp
+      = calloc (1, sizeof (struct icmp_echo) + size * sizeof (uint8_t));
+  create_icmp_echo_header (send_icmp, size);
 
-        // Copy our raw data to buffer and ready to send
-        memcpy(send_buffer, send_eth, sizeof(struct eth_header));
-        memcpy(send_buffer + sizeof(struct eth_header), send_ip, sizeof(struct ip_header));
-        memcpy(send_buffer + sizeof(struct eth_header) + sizeof(struct ip_header), send_icmp, sizeof(struct icmp_echo)+ size*sizeof(uint8_t));
-        uint16_t id = send_icmp->identifier;
+  // Copy our raw data to buffer and ready to send
+  memcpy (send_buffer, send_eth, sizeof (struct eth_header));
+  memcpy (send_buffer + sizeof (struct eth_header), send_ip,
+          sizeof (struct ip_header));
+  memcpy (send_buffer + sizeof (struct eth_header) + sizeof (struct ip_header),
+          send_icmp, sizeof (struct icmp_echo) + size * sizeof (uint8_t));
+  uint16_t id = send_icmp->identifier;
 
-        // Send raw socket
-        send_raw_icmp_packet(send_buffer, send_buffer_size);
-        
-        free(send_eth);
-        free(send_ip);
-        free(send_icmp);
-        free(send_buffer);
+  // Send raw socket
+  send_raw_icmp_packet (send_buffer, send_buffer_size);
 
-        // Return id so we can add to icmp list
-        return(id);
-    }
+  free (send_eth);
+  free (send_ip);
+  free (send_icmp);
+  free (send_buffer);
+
+  // Return id so we can add to icmp list
+  return (id);
+}
