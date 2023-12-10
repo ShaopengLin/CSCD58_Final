@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
     # Plotting
     if args.mode == 'TCP':
-        print("tcp")
+        plot_command = ['python3', 'plottcp.py']
     elif args.mode == 'IP':
         plot_command = ['python3', 'plotPing.py']
         

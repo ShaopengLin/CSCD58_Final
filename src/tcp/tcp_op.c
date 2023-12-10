@@ -271,6 +271,7 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
           add_RTT (curTime, ckq_e->sent_time);
           init_sendQ_packets (&pktgen_seqnum, 1);
           CWND = handle_SS_inc (CWND, TRSH_WND, &is_AIMD);
+          add_CWND (CWND);
           TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
           free (ckq_e->hdr);
           free (ckq_e);
@@ -279,7 +280,7 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
       handle_SS_fast_retransmit (MAX_ACK, &CWND, &is_AIMD);
       handle_SS_timeout_retransmit (curTime, &TRSH_WND, &CWND, &WND_SENT,
                                     &is_AIMD);
-      add_CWND (CWND);
+      
       while (!TAILQ_EMPTY (&tcp_inq))
         {
           inq_e = TAILQ_FIRST (&tcp_inq);

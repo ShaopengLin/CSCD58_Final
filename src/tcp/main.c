@@ -177,7 +177,7 @@ main (int argc, char **argv)
   fp = fopen ("tcpcong.txt", "w");
   TAILQ_FOREACH (cwnd_e, &tcp_congQ, entry)
   {
-    fprintf (fp, "%d %u\n", cwnd_count, cwnd_e->cwnd);
+    fprintf (fp, "%d %u\n", cwnd_count, cwnd_e->cwnd/1000);
     cwnd_count++;
   }
   printf ("***** Average RTT: %Lf ms\n", rtt_avg);

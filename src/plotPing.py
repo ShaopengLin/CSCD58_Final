@@ -2,9 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-file_path = 'log'
 plt.figure(figsize=(8, 4))  # figsize=(width, height) in inches
-data = np.loadtxt(file_path, delimiter=' ')
+data = np.loadtxt('log', delimiter=' ')
 x = data[:, 0]
 y = data[:, 1]
 plt.plot(x,y)
