@@ -1,6 +1,6 @@
 #include "protocol.h"
 #include <arpa/inet.h>
-#include <linux/if.h>
+
 #include <linux/if_packet.h>
 #include <net/ethernet.h> // For ETH_P_ALL
 #include <netinet/ether.h>

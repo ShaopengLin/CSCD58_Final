@@ -1,9 +1,7 @@
-#include "protocol.h"
-#include "tcp_protocol.h"
+#include "sendpacket.h"
 #include "utils.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
-#include <linux/if.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h> // For ETH_P_ALL
 #include <net/if.h>
@@ -174,12 +172,18 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
       sockfd, buffer,
       sizeof (struct eth_header) + sizeof (struct ip_header) + tcpTotalLen, 0,
       (struct sockaddr *)&socket_address, sizeof (socket_address));
-  // if (bytes_sent < 0) {
-  //     perror("sendto");
-  // } else {
-  //     printf("Packet sent. %zd bytes.\n", bytes_sent);
-  // }
-  print_headers (buffer);
+  // if (bytes_sent < 0)
+  //   {
+  //     perror ("sendto");
+  //   }
+  // else
+  //   {
+  //     printf ("Packet sent. %zd bytes.\n", bytes_sent);
+  //   }
+  // print_headers (buffer);
+  free (buffer);
+  free (eth);
+  free (iph);
   return 1;
 }
 
