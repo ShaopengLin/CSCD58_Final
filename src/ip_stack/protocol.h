@@ -38,6 +38,7 @@ struct __attribute__((packed)) icmp_echo {
 
     uint16_t identifier;  // Used to match echoes and replies
     uint16_t sequence_number; // Sequence number to match requests with replies
+    uint8_t data[];
 
     // This would be followed by the data payload of the message, which is variable length
 };
@@ -62,6 +63,12 @@ struct eth_header {
     uint16_t type;
 }; 
 
+struct icmp_list{
+    uint16_t id;
+    clock_t start;
+    struct icmp_list *next;
+};
+
 enum ethernetTypes {
   ether_arp = 0x0806,
   ether_ip = 0x0800,
@@ -80,7 +87,7 @@ uint16_t cksum (const void *_data, int len);
 /*creates the ip header which is ipv4 and has ip header length 5 and offset is 0, ttl is 64 and using non repeated ids*/
 void create_ip_header(struct ip_header *header, uint32_t src_addr, uint32_t dest_addr, 
                         uint8_t protocol, uint16_t packet_len);
-void create_icmp_echo_header(struct icmp_echo *header);
+void create_icmp_echo_header(struct icmp_echo *header,int size);
 /*creates the arp header which has the default hardware type of ethernet and protocol with ipv4*/
 void create_arp_header(struct arp_header *header, uint16_t operation, uint8_t *src_mac, uint32_t src_ip, 
                         uint8_t *dest_mac, uint32_t dest_ip);

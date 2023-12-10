@@ -1,1 +1,2 @@
-int handle_arp(unsigned char * buffer);
+double handle_icmp(unsigned char * buffer, struct icmp_list *head);
+uint64_t getNano ();
