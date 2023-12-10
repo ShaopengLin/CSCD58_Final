@@ -15,6 +15,7 @@ char *VARIANT;
 
 struct tcp_iq tcp_inq;
 struct tcp_cq tcp_ckq;
+struct tcp_sq tcp_sdq;
 pthread_mutex_t inq_lock;
 pthread_cond_t inq_cond;
 
@@ -39,6 +40,7 @@ initializeTCP (int argc, char **argv)
     }
   TAILQ_INIT (&tcp_inq);
   TAILQ_INIT (&tcp_ckq);
+  TAILQ_INIT (&tcp_sdq);
 
   if (pthread_mutex_init (&inq_lock, NULL) != 0)
     exit (-1);
@@ -65,9 +67,16 @@ initializeTCP (int argc, char **argv)
 void
 calculateERTT (uint64_t prevTime, uint64_t curTime)
 {
+
   uint64_t SampleRTT = curTime - prevTime;
-  ERTT = (uint64_t)((long double)ALPHA * ERTT)
-         + (uint64_t)((long double)(1 - ALPHA) * ERTT);
+  if (ERTT == SEC_TO_NS (1))
+    ERTT = SampleRTT;
+  else
+    {
+      ERTT = (uint64_t)((long double)ALPHA * ERTT)
+             + (uint64_t)((long double)(1 - ALPHA) * ERTT);
+    }
+
   TIMEOUT = 2 * ERTT;
 }
 
@@ -105,8 +114,8 @@ tcp_wait_packet (tcp_hdr_t *hdr, uint32_t len, uint64_t start, uint8_t flag)
           TAILQ_REMOVE (&tcp_inq, inq_e, entry);
           free (inq_e);
           /* Match packet */
-          if (tcp_cmp_flag (inq_e->hdr, syn_check->hdr)
-              && inq_e->hdr->ack_num == syn_check->hdr->ack_num)
+          if (tcp_cmp_flag (ret, syn_check->hdr)
+              && ret->ack_num == syn_check->hdr->ack_num)
             {
               if (!syn_check->retransmitted)
                 calculateERTT (start, curTime);
@@ -163,4 +172,200 @@ tcp_add_sw_packet (uint32_t target_ack, uint64_t sent_time, uint64_t timeout,
   tcp_gen_packet (syn_check->hdr, NULL, 0, 0, 0, 0, 0, 0, target_ack,
                   (uint8_t)(ACK_FLAG), 0);
   TAILQ_INSERT_TAIL (&tcp_ckq, syn_check, entry);
+}
+
+void
+send_sw (tcp_hdr_t *hdr, uint8_t *data, uint32_t len, tcp_check_entry_t *ckq_e,
+         uint32_t ack_num)
+{
+  tcp_gen_packet (hdr, data, len, SRC_IP, DST_IP, SRC_PORT, DST_PORT,
+                  ckq_e ? ntohl (ckq_e->hdr->ack_num) - len : SEQNUM, ack_num,
+                  (uint8_t)(PSH_FLAG | ACK_FLAG), 65535);
+  warpHeaderAndSendTcp (hdr, sizeof (tcp_hdr_t) + len, DST_IP, DST_MAC);
+}
+
+uint32_t
+handle_SS_inc (uint32_t c_wnd, uint32_t t_wnd, bool *is_AIMD)
+{
+  if (&is_AIMD)
+    {
+      c_wnd += (uint16_t)(PKT_SIZE
+                          * ((long double)PKT_SIZE / (long double)c_wnd));
+    }
+  else
+    {
+      c_wnd += PKT_SIZE;
+      if (c_wnd > t_wnd)
+        {
+          c_wnd = t_wnd;
+          *is_AIMD = true;
+        }
+    }
+  if (c_wnd > RWND)
+    c_wnd = RWND;
+  return c_wnd;
+}
+
+void
+handle_SS_retransmit_packet (tcp_hdr_t *hdr, tcp_check_entry_t *ckq_e,
+                             uint8_t *data, uint32_t ack_num, uint64_t curTime)
+{
+  send_sw (hdr, data, ckq_e->len, ckq_e, ack_num);
+  ckq_e->sent_time = curTime;
+  ckq_e->timeout = curTime + TIMEOUT;
+  ckq_e->rAck = 0;
+  ckq_e->retransmitted = true;
+}
+
+void
+handle_SS_fast_retransmit (tcp_hdr_t *hdr, uint8_t *data, uint32_t max_ack,
+                           uint64_t curTime, uint32_t *c_wnd, uint32_t ack_num,
+                           bool *is_AIMD)
+{
+  tcp_check_entry_t *ckq_e = NULL;
+  tcp_packet_entry_t *inq_e = NULL;
+  if (!TAILQ_EMPTY (&tcp_ckq))
+    {
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+    }
+  while (!TAILQ_EMPTY (&tcp_inq))
+    {
+      inq_e = TAILQ_FIRST (&tcp_inq);
+      uint32_t e_seq = ntohl (inq_e->hdr->ack_num);
+
+      if (ckq_e && max_ack == (ntohl (ckq_e->hdr->ack_num) - ckq_e->len)
+          && e_seq == max_ack)
+        {
+          if (ckq_e->retransmitted)
+            {
+              *c_wnd += PKT_SIZE;
+              if (*c_wnd > RWND)
+                {
+                  *c_wnd = RWND;
+                }
+            }
+          else
+            ckq_e->rAck++;
+        }
+
+      TAILQ_REMOVE (&tcp_inq, inq_e, entry);
+      free (inq_e->hdr);
+      free (inq_e);
+    }
+
+  if (ckq_e && ckq_e->rAck >= 3)
+    {
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+      TIMEOUT *= 2;
+      // perror ("FASTRRRRR");
+      handle_SS_retransmit_packet (hdr, ckq_e, data, ack_num, curTime);
+      *c_wnd = *c_wnd / 2 < PKT_SIZE ? PKT_SIZE : *c_wnd / 2;
+      *c_wnd = *c_wnd + 3 * PKT_SIZE > RWND ? RWND : *c_wnd + 3 * PKT_SIZE;
+      *is_AIMD = true;
+    }
+  return c_wnd;
+}
+
+void
+handle_simple_fast_retransmit (tcp_hdr_t *hdr, uint8_t *data, uint32_t max_ack,
+                               uint64_t curTime, uint32_t ack_num)
+{
+  tcp_check_entry_t *ckq_e = NULL;
+  tcp_packet_entry_t *inq_e = NULL;
+  if (!TAILQ_EMPTY (&tcp_ckq))
+    {
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+    }
+  while (!TAILQ_EMPTY (&tcp_inq))
+    {
+      inq_e = TAILQ_FIRST (&tcp_inq);
+      uint32_t e_seq = ntohl (inq_e->hdr->ack_num);
+
+      if (ckq_e && max_ack == (ntohl (ckq_e->hdr->ack_num) - ckq_e->len)
+          && e_seq == max_ack)
+        {
+          ckq_e->rAck++;
+        }
+
+      TAILQ_REMOVE (&tcp_inq, inq_e, entry);
+      free (inq_e->hdr);
+      free (inq_e);
+    }
+
+  if (ckq_e && ckq_e->rAck >= 3)
+    {
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+      TIMEOUT *= 2;
+      // perror ("FASTRRRRR");
+      handle_SS_retransmit_packet (hdr, ckq_e, data, ack_num, curTime);
+    }
+}
+void
+handle_SS_timeout_retransmit (tcp_hdr_t *hdr, uint8_t *data, uint64_t curTime,
+                              uint32_t *t_cwnd, uint32_t *c_wnd,
+                              uint32_t ack_num, bool *is_AIMD)
+{
+
+  tcp_check_entry_t *ckq_e = NULL;
+  bool retrans = false;
+  // tcp_packet_entry_t *inq_e = NULL;
+  if (!TAILQ_EMPTY (&tcp_ckq))
+    {
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+      if (ckq_e->timeout <= curTime)
+        {
+          // SEQNUM = ntohl (ckq_e->hdr->ack_num) - ckq_e->len;
+          retrans = true;
+          *t_cwnd = *c_wnd / 2 < PKT_SIZE ? PKT_SIZE : *c_wnd / 2;
+          *c_wnd = PKT_SIZE;
+        }
+    }
+  if (retrans)
+    {
+      // perror ("SLOWRRRR");
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+      TIMEOUT *= 2;
+      TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
+      {
+        handle_SS_retransmit_packet (hdr, ckq_e, data, ack_num, curTime);
+        *is_AIMD = false;
+      }
+    }
+}
+void
+handle_simple_timeout_retransmit (tcp_hdr_t *hdr, uint8_t *data,
+                                  uint64_t curTime, uint32_t ack_num)
+{
+  tcp_check_entry_t *ckq_e = NULL;
+  bool retrans = false;
+  // tcp_packet_entry_t *inq_e = NULL;
+  if (!TAILQ_EMPTY (&tcp_ckq))
+    {
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+      if (ckq_e->timeout <= curTime)
+        retrans = true;
+    }
+  if (retrans)
+    {
+      // perror ("SLOWRRRR");
+      ckq_e = TAILQ_FIRST (&tcp_ckq);
+      TIMEOUT *= 2;
+      TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
+      {
+        handle_SS_retransmit_packet (hdr, ckq_e, data, ack_num, curTime);
+      }
+    }
+}
+uint32_t
+get_max_ack (uint32_t max_ack)
+{
+  tcp_check_entry_t *ckq_e = NULL;
+  tcp_packet_entry_t *inq_e = NULL;
+  TAILQ_FOREACH (inq_e, &tcp_inq, entry)
+  {
+    uint32_t e_ack = ntohl (inq_e->hdr->ack_num);
+    max_ack = max_ack < e_ack ? e_ack : max_ack;
+  }
+
+  return max_ack;
 }

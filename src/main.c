@@ -129,16 +129,19 @@ main (int argc, char **argv)
   memcpy (DST_MAC, receive_arp_header->sha, 6);
   perror ("Handshaking");
   uint32_t ack_num = tcp_handshake ();
-  if (strcmp (VARIANT, "SW") == 0)
+  if (strcmp (VARIANT, "SAW") == 0)
     tcp_stop_and_wait (ack_num);
+  else if (strcmp (VARIANT, "SWCC") == 0)
+    tcp_send_sliding_window_slowS_fastR (ack_num);
+  else if (strcmp (VARIANT, "SWF") == 0)
+    tcp_send_sliding_window_fixed (10, ack_num);
   else
     printf ("Invalid Variant %s", VARIANT);
   // ack_num = tcp_send_sliding_window_test (s, inet_addr (source_ip), sin,
   //                                         ack_num, num_bytes);
   // ack_num = tcp_send_sliding_window_fixed (
   //     1234, PORT, targetIp, receive_arp_header->sha, ack_num, num_bytes);
-  // ack_num = tcp_send_sliding_window_slowS_fastR (
-  //     1234, DST_PORT, DST_IP, receive_arp_header->sha, ack_num, NUM_BYTES);
+
   tcp_teardown (ack_num);
 
   system ("iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP");

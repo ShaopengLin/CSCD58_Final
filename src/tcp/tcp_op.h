@@ -43,11 +43,24 @@ struct tcp_check_entry
 } __attribute__ ((packed));
 typedef struct tcp_check_entry tcp_check_entry_t;
 
+struct tcp_send_entry
+{
+  TAILQ_ENTRY (tcp_send_entry) entry;
+  tcp_check_entry_t *ckq_e;
+  uint32_t seq_num;
+  size_t len;
+  bool is_retrans;
+} __attribute__ ((packed));
+typedef struct tcp_send_entry tcp_send_entry_t;
+
 TAILQ_HEAD (tcp_iq, tcp_packet_entry);
 extern struct tcp_iq tcp_inq;
 
 TAILQ_HEAD (tcp_cq, tcp_check_entry);
 extern struct tcp_cq tcp_ckq;
+
+TAILQ_HEAD (tcp_sq, tcp_send_entry);
+extern struct tcp_sq tcp_sdq;
 
 extern pthread_mutex_t inq_lock;
 extern pthread_cond_t inq_cond;
@@ -59,7 +72,7 @@ uint32_t tcp_handshake ();
 void tcp_stop_and_wait (uint32_t ack_num);
 uint32_t tcp_send_sliding_window_fixed (uint32_t window_size,
                                         uint32_t ack_num);
-uint32_t tcp_send_sliding_window_slowS_fastR (uint32_t ack_num);
+void tcp_send_sliding_window_slowS_fastR (uint32_t ack_num);
 
 void tcp_teardown (uint32_t ack_num);
 
