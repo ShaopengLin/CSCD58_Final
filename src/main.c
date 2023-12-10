@@ -63,7 +63,8 @@ packet_receiver (void *arg)
           memcpy (receive_arp_header, buffer + sizeof (struct ethhdr),
                   sizeof (struct arp_header));
 
-          memcpy(receive_arp_header, buffer + sizeof(struct ethhdr), sizeof(struct arp_header));
+          memcpy (receive_arp_header, buffer + sizeof (struct ethhdr),
+                  sizeof (struct arp_header));
           arp_check = 0;
           arp_header_ready = 1;
         }
@@ -96,14 +97,18 @@ packet_receiver (void *arg)
 void
 main (int argc, char **argv)
 {
-  int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+  system ("iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP");
+
+  int sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
   struct sockaddr_ll socket_address;
-  memset(&socket_address, 0, sizeof(struct sockaddr_ll));
+  char *iface = find_active_interface ();
+  memset (&socket_address, 0, sizeof (struct sockaddr_ll));
   socket_address.sll_family = AF_PACKET;
-  socket_address.sll_protocol = htons(ether_arp);
-  socket_address.sll_ifindex = if_nametoindex(find_active_interface()); // Use iface variable
+  socket_address.sll_protocol = htons (ether_arp);
+  socket_address.sll_ifindex = if_nametoindex (iface); // Use iface variable
   socket_address.sll_halen = ETH_ALEN;
-  initSocket(sockfd, socket_address);
+  initSocket (sockfd, socket_address);
+  free (iface);
   int sock_r;
   pthread_t thread_id;
   receive_arp_header = malloc (sizeof (struct arp_header));
@@ -211,4 +216,6 @@ main (int argc, char **argv)
   ack_num = tcp_send_sliding_window_slowS_fastR (
       1234, PORT, targetIp, receive_arp_header->sha, ack_num, num_bytes);
   tcp_teardown (1234, PORT, targetIp, receive_arp_header->sha, ack_num);
+
+  system ("iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP");
 }

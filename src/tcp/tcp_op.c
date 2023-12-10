@@ -126,7 +126,9 @@ tcp_handshake (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
   tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
   uint8_t mac[6];
   uint32_t src_ip;
-  get_mac_ip (find_active_interface (), &mac, &src_ip);
+  char *iface = find_active_interface ();
+  get_mac_ip (iface, &mac, &src_ip);
+  free (iface);
 
   /* Send TCP SYN packet */
   tcp_gen_syn (tcph, src_ip, dest_ip, src_port, dst_port, SEQNUM, 5840);
@@ -159,7 +161,9 @@ tcp_stop_and_wait (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
   uint32_t remainder = num_byte % size;
   uint8_t mac[6];
   uint32_t src_ip;
-  get_mac_ip (find_active_interface (), &mac, &src_ip);
+  char *iface = find_active_interface ();
+  get_mac_ip (iface, &mac, &src_ip);
+  free (iface);
 
   char datagram[4096];
   memset (datagram, 0, 4096);
@@ -216,7 +220,9 @@ tcp_send_sliding_window_fixed (uint16_t src_port, uint16_t dst_port,
 
   uint8_t mac[6];
   uint32_t src_ip;
-  get_mac_ip (find_active_interface (), &mac, &src_ip);
+  char *iface = find_active_interface ();
+  get_mac_ip (iface, &mac, &src_ip);
+  free (iface);
 
   char datagram[4096];
   memset (datagram, 0, 4096);
@@ -348,7 +354,9 @@ tcp_send_sliding_window_slowS_fastR (uint16_t src_port, uint16_t dst_port,
 
   uint8_t mac[6];
   uint32_t src_ip;
-  get_mac_ip (find_active_interface (), &mac, &src_ip);
+  char *iface = find_active_interface ();
+  get_mac_ip (iface, &mac, &src_ip);
+  free (iface);
 
   char datagram[4096];
   memset (datagram, 0, 4096);
@@ -549,7 +557,9 @@ tcp_teardown (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
   tcp_hdr_t *tcph = (tcp_hdr_t *)calloc (1, sizeof (tcp_hdr_t));
   uint8_t mac[6];
   uint32_t src_ip;
-  get_mac_ip (find_active_interface (), &mac, &src_ip);
+  char *iface = find_active_interface ();
+  get_mac_ip (iface, &mac, &src_ip);
+  free (iface);
 
   /* Send TCP FIN ACK packet */
   tcp_gen_packet (tcph, 0, 0, src_ip, dest_ip, src_port, dst_port, SEQNUM,
@@ -567,4 +577,5 @@ tcp_teardown (uint16_t src_port, uint16_t dst_port, uint32_t *dest_ip,
   tcp_gen_packet (tcph, 0, 0, src_ip, dest_ip, src_port, dst_port, SEQNUM,
                   ack_num, (uint8_t)(ACK_FLAG), 5840);
   warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), dest_ip, dest_mac);
+  free (tcph);
 }
