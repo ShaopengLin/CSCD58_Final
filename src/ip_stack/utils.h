@@ -9,5 +9,6 @@
 #include <net/ethernet.h>    // For Ethernet header
 
 void print_headers(unsigned char *buffer);
-
+uint64_t getNano ();
+uint64_t SEC_TO_NS (time_t sec);
 #endif // PACKET_UTILS_H

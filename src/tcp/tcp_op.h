@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <sys/queue.h>
 #include <time.h>
+#include "../ip_stack/utils.h"
 
 #ifndef TCP_OP_H
 #define TCP_OP_H
@@ -41,7 +42,6 @@ struct tcp_cq tcp_ckq;
 pthread_mutex_t inq_lock;
 pthread_cond_t inq_cond;
 
-uint64_t SEC_TO_NS (time_t sec);
 void *tcp_check_timeout ();
 void handle_tcp (tcp_hdr_t *hdr);
 tcp_hdr_t *tcp_wait_packet (uint32_t target_ack, uint64_t timeout,

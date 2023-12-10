@@ -63,14 +63,7 @@ packet_receiver (void *arg)
           memcpy (receive_arp_header, buffer + sizeof (struct ethhdr),
                   sizeof (struct arp_header));
 
-          if (handle_arp (buffer) == 1)
-            {
-              printf ("1\n");
-              // receive_arp_header = (struct arp_header *)(buffer +
-              // sizeof(struct ethhdr)); memcpy(receive_arp_header, buffer +
-              // sizeof(struct ethhdr), sizeof(struct arp_header));
-              print_ARP_headers (receive_arp_header);
-            }
+          memcpy(receive_arp_header, buffer + sizeof(struct ethhdr), sizeof(struct arp_header));
           arp_check = 0;
           arp_header_ready = 1;
         }
@@ -159,7 +152,7 @@ main (int argc, char **argv)
   // Optionally wait for the thread to finish
   // pthread_join(thread_id, NULL);
 
-  const char *ip_str = "10.1.1.2";
+  const char *ip_str = "10.0.0.2";
   uint32_t targetIp = inet_addr (ip_str);
 
   if (targetIp == INADDR_NONE)

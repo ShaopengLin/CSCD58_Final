@@ -8,27 +8,7 @@
 #include <semaphore.h>
 #include <time.h>
 
-uint64_t
-SEC_TO_NS (time_t sec)
-{
-  return (sec) * 1000000000;
-};
 
-uint64_t
-getNano ()
-{
-  uint64_t nanoseconds;
-  struct timespec ts;
-  int return_code = timespec_get (&ts, TIME_UTC);
-  if (return_code == 0)
-    {
-      perror ("Cannot get time for some reason");
-      exit (-1);
-    }
-  else
-    nanoseconds = SEC_TO_NS ((uint64_t)ts.tv_sec) + (uint64_t)ts.tv_nsec;
-  return nanoseconds;
-}
 
 
 // Go over the linked list, if find same id, return the head, else return NULL

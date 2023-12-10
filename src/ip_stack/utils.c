@@ -6,7 +6,14 @@
 #include <netinet/ip_icmp.h> // For ICMP header
 #include <netinet/tcp.h>     // For TCP header
 #include <stdio.h>
+#include <time.h>
+#include "utils.h"
 
+uint64_t
+SEC_TO_NS (time_t sec)
+{
+  return (sec) * 1000000000;
+}
 void
 print_headers (unsigned char *buffer)
 {
@@ -155,4 +162,19 @@ print_ARP_headers (struct arp_header *buffer)
   for (int i = 0; i < arp_header->ar_pln; i++)
     printf ("%d.", target_ip[i]);
   printf ("\n");
+}
+uint64_t
+getNano ()
+{
+  uint64_t nanoseconds;
+  struct timespec ts;
+  int return_code = timespec_get (&ts, TIME_UTC);
+  if (return_code == 0)
+    {
+      perror ("Cannot get time for some reason");
+      exit (-1);
+    }
+  else
+    nanoseconds = SEC_TO_NS ((uint64_t)ts.tv_sec) + (uint64_t)ts.tv_nsec;
+  return nanoseconds;
 }
