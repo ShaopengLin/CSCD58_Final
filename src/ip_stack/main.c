@@ -130,6 +130,7 @@ int main(int argc, char** argv) {
     int packet_to_send = 1;
     int packet_size = 0;
     int packet_interval = 1;
+    const char *ip_str = NULL;
 
         for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0) {
@@ -157,6 +158,15 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
+        else if (strcmp(argv[i], "-ip") == 0) {
+            // Next argument is the IP address
+            if (i + 1 < argc) {
+                ip_str = argv[++i];
+            } else {
+                fprintf(stderr, "Option -ip requires an IP address argument.\n");
+                return 1;
+            }
+        }
     }
 
     if(packet_size > 500) packet_size = 500;
@@ -165,6 +175,10 @@ int main(int argc, char** argv) {
     printf("Packet to send: %d\n", packet_to_send);
     printf("Packet size: %d\n", packet_size);
     printf("Packet interval: %d\n", packet_interval);
+    if(ip_str == NULL){
+        printf("IP required\n");
+        return -1;
+    }
     
     //------------------------------------------------------------------------------
         // initialize
@@ -183,7 +197,7 @@ int main(int argc, char** argv) {
     }
     //------------------------------------------------------------------------------
 
-    const char *ip_str = "10.0.0.2";
+    
     uint32_t targetIp = inet_addr(ip_str);
     if (targetIp == INADDR_NONE) {
         fprintf(stderr, "Invalid IP address format: %s\n", ip_str);
