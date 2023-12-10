@@ -1,6 +1,7 @@
 #include "tcp_helpers.h"
 #include "../ip_stack/sendpacket.h"
 #include "../ip_stack/utils.h"
+#include "tcp_stat.h"
 #include <linux/in.h>
 uint32_t SEQNUM;
 uint16_t SRC_PORT;
@@ -11,12 +12,14 @@ uint32_t PKT_SIZE;
 uint32_t SRC_IP;
 uint64_t ERTT;
 uint64_t TIMEOUT;
-uint32_t TESTING_PERIOD;
+uint64_t TESTING_PERIOD;
 char *VARIANT;
-
 struct tcp_iq tcp_inq;
 struct tcp_cq tcp_ckq;
 struct tcp_sq tcp_sdq;
+struct tcp_rtt_q tcp_rttQ;
+struct tcp_bw_q tcp_bwQ;
+struct tcp_cong_q tcp_congQ;
 pthread_mutex_t inq_lock;
 pthread_cond_t inq_cond;
 
@@ -24,16 +27,17 @@ void
 initializeTCP (int argc, char **argv)
 {
   // Initializes SEQNUM, locks and conditional variable and define user inputs
-  init_genrand (0);
-  SEQNUM = genrand_int32 ();
+  // init_genrand (0);
+  // SEQNUM = genrand_int32 ();
+  SEQNUM = 0;
 
   VARIANT = argv[1];
-  NUM_BYTES = atoi (argv[2]);
+  NUM_BYTES = INTMAX_MAX;
   PKT_SIZE = atoi (argv[3]);
   DST_IP = inet_addr (argv[4]);
   SRC_PORT = atoi (argv[5]);
   DST_PORT = atoi (argv[6]);
-  TESTING_PERIOD = atoi (argv[7]);
+  TESTING_PERIOD = SEC_TO_NS (atoi (argv[7]));
 
   if (DST_IP == INADDR_NONE)
     {
@@ -43,7 +47,9 @@ initializeTCP (int argc, char **argv)
   TAILQ_INIT (&tcp_inq);
   TAILQ_INIT (&tcp_ckq);
   TAILQ_INIT (&tcp_sdq);
-
+  TAILQ_INIT (&tcp_rttQ);
+  TAILQ_INIT (&tcp_bwQ);
+  TAILQ_INIT (&tcp_congQ);
   if (pthread_mutex_init (&inq_lock, NULL) != 0)
     exit (-1);
   if (pthread_cond_init (&inq_cond, NULL) != 0)
@@ -64,6 +70,8 @@ initializeTCP (int argc, char **argv)
   pthread_t timer_tid;
   if (pthread_create (&timer_tid, NULL, &tcp_check_timeout, NULL) != 0)
     exit (-1);
+
+  RWND = 0;
 }
 
 void
@@ -120,8 +128,8 @@ tcp_wait_packet (tcp_hdr_t *hdr, uint32_t len, uint64_t start, uint8_t flag)
               && ret->ack_num == syn_check->hdr->ack_num)
             {
               if (!syn_check->retransmitted)
-                calculateERTT (start, curTime);
-
+                calculateERTT (syn_check->sent_time, curTime);
+              add_RTT (curTime, syn_check->sent_time);
               TAILQ_REMOVE (&tcp_ckq, syn_check, entry);
               free (syn_check->hdr);
               free (syn_check);
@@ -209,8 +217,7 @@ handle_SS_inc (uint32_t c_wnd, uint32_t t_wnd, bool *is_AIMD)
 }
 
 void
-handle_SS_fast_retransmit (uint32_t max_ack, uint32_t *c_wnd,
-                           uint32_t *byte_sent, bool *is_AIMD)
+handle_SS_fast_retransmit (uint32_t max_ack, uint32_t *c_wnd, bool *is_AIMD)
 {
   tcp_check_entry_t *ckq_e = NULL;
   tcp_packet_entry_t *inq_e = NULL;
@@ -258,7 +265,6 @@ handle_SS_fast_retransmit (uint32_t max_ack, uint32_t *c_wnd,
       sq_e->is_retrans = false;
       TAILQ_INSERT_HEAD (&tcp_sdq, sq_e, entry);
 
-      *byte_sent -= ckq_e->len;
       TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
       free (ckq_e->hdr);
       free (ckq_e);
@@ -271,8 +277,7 @@ handle_SS_fast_retransmit (uint32_t max_ack, uint32_t *c_wnd,
 }
 
 void
-handle_simple_fast_retransmit (uint32_t *s_wnd, uint32_t max_ack,
-                               uint32_t *byte_sent)
+handle_simple_fast_retransmit (uint32_t *s_wnd, uint32_t max_ack)
 {
   tcp_check_entry_t *ckq_e = NULL;
   tcp_packet_entry_t *inq_e = NULL;
@@ -310,7 +315,6 @@ handle_simple_fast_retransmit (uint32_t *s_wnd, uint32_t max_ack,
       sq_e->is_retrans = false;
       TAILQ_INSERT_HEAD (&tcp_sdq, sq_e, entry);
 
-      *byte_sent -= ckq_e->len;
       TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
       free (ckq_e->hdr);
       free (ckq_e);
@@ -318,8 +322,7 @@ handle_simple_fast_retransmit (uint32_t *s_wnd, uint32_t max_ack,
 }
 void
 handle_SS_timeout_retransmit (uint64_t curTime, uint32_t *t_cwnd,
-                              uint32_t *c_wnd, uint32_t *s_wnd,
-                              uint32_t *byte_sent, bool *is_AIMD)
+                              uint32_t *c_wnd, uint32_t *s_wnd, bool *is_AIMD)
 {
 
   tcp_check_entry_t *ckq_e = NULL;
@@ -359,7 +362,6 @@ handle_SS_timeout_retransmit (uint64_t curTime, uint32_t *t_cwnd,
               TAILQ_INSERT_AFTER (&tcp_sdq, prev, sq_e, entry);
             }
           prev = sq_e;
-          *byte_sent -= ckq_e->len;
           TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
           free (ckq_e->hdr);
           free (ckq_e);
@@ -369,8 +371,7 @@ handle_SS_timeout_retransmit (uint64_t curTime, uint32_t *t_cwnd,
     }
 }
 void
-handle_simple_timeout_retransmit (uint32_t *s_wnd, uint32_t *byte_sent,
-                                  uint64_t curTime)
+handle_simple_timeout_retransmit (uint32_t *s_wnd, uint64_t curTime)
 {
   tcp_check_entry_t *ckq_e = NULL;
   bool retrans = false;
@@ -408,7 +409,6 @@ handle_simple_timeout_retransmit (uint32_t *s_wnd, uint32_t *byte_sent,
               TAILQ_INSERT_AFTER (&tcp_sdq, prev, sq_e, entry);
             }
           prev = sq_e;
-          *byte_sent -= ckq_e->len;
           TAILQ_REMOVE (&tcp_ckq, ckq_e, entry);
           free (ckq_e->hdr);
           free (ckq_e);
@@ -430,29 +430,18 @@ get_max_ack (uint32_t max_ack)
 }
 
 void
-init_sendQ_packets ()
+init_sendQ_packets (int32_t *pktgen_seqnum, uint32_t count)
 {
-  uint32_t tempBYTESENT = 0;
-  uint32_t num_packet = NUM_BYTES / PKT_SIZE;
-  num_packet += NUM_BYTES % PKT_SIZE > 0 ? 1 : 0;
-  uint32_t next_size = NUM_BYTES - tempBYTESENT >= PKT_SIZE
-                           ? PKT_SIZE
-                           : NUM_BYTES - tempBYTESENT;
-  uint32_t tempSEQNUM = SEQNUM;
 
   tcp_send_entry_t *sq_e = NULL;
-  for (int i = 0; i < num_packet; i++)
+  for (int i = 0; i < count; i++)
     {
       sq_e = (tcp_send_entry_t *)calloc (1, sizeof (tcp_send_entry_t));
-      sq_e->len = next_size;
-      sq_e->seq_num = tempSEQNUM;
+      sq_e->len = PKT_SIZE;
+      sq_e->seq_num = *pktgen_seqnum;
       sq_e->is_retrans = false;
 
       TAILQ_INSERT_TAIL (&tcp_sdq, sq_e, entry);
-      tempBYTESENT += next_size;
-      tempSEQNUM += next_size;
-      next_size = NUM_BYTES - tempBYTESENT >= PKT_SIZE
-                      ? PKT_SIZE
-                      : NUM_BYTES - tempBYTESENT;
+      *pktgen_seqnum += PKT_SIZE;
     }
 }
