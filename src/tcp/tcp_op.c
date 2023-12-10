@@ -134,23 +134,8 @@ tcp_send_sliding_window_fixed (uint32_t window_size, uint32_t ack_num)
   // TCP header
   tcp_hdr_t *tcph = (tcp_hdr_t *)(DATAGRAM);
 
-  uint32_t tempSEQNUM = SEQNUM;
-  uint32_t tempBYTESENT = 0;
   tcp_send_entry_t *sq_e = NULL;
-  for (int i = 0; i < num_packet; i++)
-    {
-      sq_e = (tcp_send_entry_t *)calloc (1, sizeof (tcp_send_entry_t));
-      sq_e->len = next_size;
-      sq_e->seq_num = tempSEQNUM;
-      sq_e->is_retrans = false;
-
-      TAILQ_INSERT_TAIL (&tcp_sdq, sq_e, entry);
-      tempBYTESENT += next_size;
-      tempSEQNUM += next_size;
-      next_size = NUM_BYTES - tempBYTESENT >= PKT_SIZE
-                      ? PKT_SIZE
-                      : NUM_BYTES - tempBYTESENT;
-    }
+  init_sendQ_packets ();
   next_size
       = NUM_BYTES - byte_sent >= PKT_SIZE ? PKT_SIZE : NUM_BYTES - byte_sent;
 
@@ -158,11 +143,6 @@ tcp_send_sliding_window_fixed (uint32_t window_size, uint32_t ack_num)
     {
 
       pthread_mutex_lock (&inq_lock);
-      // printf ("QUOTIENT: %u\n", quotient);
-      // printf ("WND %u %u %u\n", WND_SENT / PKT_SIZE, CWND / PKT_SIZE,
-      //         total_packet - num_packet);
-      // printf ("Deviation %u\n", Deviation);
-      // printf ("timeout %lu\n", TimeOut);
       uint64_t curTime = getNano ();
 
       /* When CWND full, we restart only when new packets or timeout happen
@@ -196,8 +176,8 @@ tcp_send_sliding_window_fixed (uint32_t window_size, uint32_t ack_num)
           free (ckq_e);
         }
 
-      handle_simple_fast_retransmit (tcph, data, MAX_ACK, curTime, ack_num);
-      handle_simple_timeout_retransmit (tcph, data, curTime, ack_num);
+      handle_simple_fast_retransmit (&WND_SENT, MAX_ACK, &byte_sent);
+      handle_simple_timeout_retransmit (&WND_SENT, &byte_sent, curTime);
 
       while (!TAILQ_EMPTY (&tcp_inq))
         {
@@ -257,23 +237,8 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
   // TCP header
   tcp_hdr_t *tcph = (tcp_hdr_t *)(DATAGRAM);
 
-  uint32_t tempSEQNUM = SEQNUM;
-  uint32_t tempBYTESENT = 0;
   tcp_send_entry_t *sq_e = NULL;
-  for (int i = 0; i < num_packet; i++)
-    {
-      sq_e = (tcp_send_entry_t *)calloc (1, sizeof (tcp_send_entry_t));
-      sq_e->len = next_size;
-      sq_e->seq_num = tempSEQNUM;
-      sq_e->is_retrans = false;
-
-      TAILQ_INSERT_TAIL (&tcp_sdq, sq_e, entry);
-      tempBYTESENT += next_size;
-      tempSEQNUM += next_size;
-      next_size = NUM_BYTES - tempBYTESENT >= PKT_SIZE
-                      ? PKT_SIZE
-                      : NUM_BYTES - tempBYTESENT;
-    }
+  init_sendQ_packets ();
   next_size
       = NUM_BYTES - byte_sent >= PKT_SIZE ? PKT_SIZE : NUM_BYTES - byte_sent;
 
@@ -281,11 +246,6 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
     {
 
       pthread_mutex_lock (&inq_lock);
-      // printf ("QUOTIENT: %u\n", quotient);
-      // printf ("WND %u %u %u\n", WND_SENT / PKT_SIZE, CWND / PKT_SIZE,
-      //         total_packet - num_packet);
-      // printf ("Deviation %u\n", Deviation);
-      // printf ("timeout %lu\n", TimeOut);
       uint64_t curTime = getNano ();
 
       /* When CWND full, we restart only when new packets or timeout happen
@@ -321,10 +281,9 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
           free (ckq_e);
         }
 
-      handle_SS_fast_retransmit (tcph, data, MAX_ACK, curTime, &CWND, ack_num,
-                                 &is_AIMD);
-      handle_SS_timeout_retransmit (tcph, data, curTime, &CWND, &TRSH_WND,
-                                    ack_num, &is_AIMD);
+      handle_SS_fast_retransmit (MAX_ACK, &CWND, &byte_sent, &is_AIMD);
+      handle_SS_timeout_retransmit (curTime, &TRSH_WND, &CWND, &WND_SENT,
+                                    &byte_sent, &is_AIMD);
 
       while (!TAILQ_EMPTY (&tcp_inq))
         {
@@ -340,17 +299,14 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
         {
           sq_e = TAILQ_FIRST (&tcp_sdq);
           send_sw (tcph, data, sq_e->len, NULL, ack_num);
-          if (!sq_e->is_retrans)
-            {
-              byte_sent += sq_e->len;
-              SEQNUM += sq_e->len;
-              WND_SENT += sq_e->len;
+          byte_sent += sq_e->len;
+          SEQNUM += sq_e->len;
+          WND_SENT += sq_e->len;
 
-              tcp_add_sw_packet (SEQNUM, curTime, TIMEOUT, sq_e->len);
-              next_size = NUM_BYTES - byte_sent >= PKT_SIZE
-                              ? PKT_SIZE
-                              : NUM_BYTES - byte_sent;
-            }
+          tcp_add_sw_packet (SEQNUM, curTime, TIMEOUT, sq_e->len);
+          next_size = NUM_BYTES - byte_sent >= PKT_SIZE
+                          ? PKT_SIZE
+                          : NUM_BYTES - byte_sent;
 
           TAILQ_REMOVE (&tcp_sdq, sq_e, entry);
           free (sq_e);
