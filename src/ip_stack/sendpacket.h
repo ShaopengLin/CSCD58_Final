@@ -22,4 +22,4 @@ int send_raw_icmp_packet (uint8_t *buffer, size_t buffer_size);
 int warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
                           uint8_t *dest_mac);
 
-uint16_t send_ip_packet (struct arp_header *receive_arp_header, int size);
+uint16_t send_ip_packet(struct arp_header* receive_arp_header, int size);

@@ -6,7 +6,7 @@ TCP_SOURCES = $(wildcard $(TCP_SRC_DIR)/*.c) main.c
 TCP_OBJECTS = $(TCP_SOURCES:.c=.o)
 
 IP_STACK_SRC_DIR = ./ip_stack
-IP_STACK_SOURCES = $(filter-out $(IP_STACK_SRC_DIR)/main.c, $(wildcard $(IP_STACK_SRC_DIR)/*.c))
+IP_STACK_SOURCES = $(wildcard $(IP_STACK_SRC_DIR)/*.c)
 IP_STACK_OBJECTS = $(IP_STACK_SOURCES:.c=.o)
 TARGET = LAN_SPEED
 
