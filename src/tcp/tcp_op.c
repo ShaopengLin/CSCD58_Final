@@ -171,7 +171,7 @@ tcp_send_sliding_window_fixed (uint32_t window_size, uint32_t ack_num)
             break;
 
           WND_SENT = WND_SENT < PKT_SIZE ? 0 : WND_SENT - ckq_e->len;
-          add_RTT (curTime, ckq_e->sent_time);
+          add_RTT (ckq_e->sent_time, curTime);
           if (!ckq_e->retransmitted)
             calculateERTT (ckq_e->sent_time, curTime);
           init_sendQ_packets (&pktgen_seqnum, 1);
@@ -268,7 +268,8 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
 
           if (!ckq_e->retransmitted)
             calculateERTT (ckq_e->sent_time, curTime);
-          add_RTT (curTime, ckq_e->sent_time);
+          add_RTT (ckq_e->sent_time, curTime);
+          add_CWND (CWND);
           init_sendQ_packets (&pktgen_seqnum, 1);
           CWND = handle_SS_inc (CWND, TRSH_WND, &is_AIMD);
           add_CWND (CWND);
@@ -280,7 +281,7 @@ tcp_send_sliding_window_slowS_fastR (uint32_t ack_num)
       handle_SS_fast_retransmit (MAX_ACK, &CWND, &is_AIMD);
       handle_SS_timeout_retransmit (curTime, &TRSH_WND, &CWND, &WND_SENT,
                                     &is_AIMD);
-      
+
       while (!TAILQ_EMPTY (&tcp_inq))
         {
           inq_e = TAILQ_FIRST (&tcp_inq);
@@ -321,14 +322,13 @@ tcp_teardown (uint32_t ack_num)
   tcp_gen_packet (tcph, 0, 0, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SEQNUM,
                   ack_num, (uint8_t)(FIN_FLAG | ACK_FLAG), 5840);
   warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), DST_IP, DST_MAC);
-  printf ("OK");
   /* Recieve TCP FIN ACK */
   tcp_hdr_t *finack_hdr
       = tcp_wait_packet (tcph, 1, getNano (), (uint8_t)(FIN_FLAG | ACK_FLAG));
   ack_num = ntohl (finack_hdr->seq_num) + 1;
   free (finack_hdr);
   /* Send TCP ACK */
-  printf ("OK");
+
   tcp_gen_packet (tcph, 0, 0, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SEQNUM,
                   ack_num, (uint8_t)(ACK_FLAG), 5840);
   warpHeaderAndSendTcp (tcph, sizeof (tcp_hdr_t), DST_IP, DST_MAC);

@@ -112,7 +112,6 @@ tcp_wait_packet (tcp_hdr_t *hdr, uint32_t len, uint64_t start, uint8_t flag)
       pthread_mutex_lock (&inq_lock);
       while (TAILQ_EMPTY (&tcp_inq))
         pthread_cond_wait (&inq_cond, &inq_lock);
-
       // TAILQ_FOREACH (ckq_e, &tcp_ckq, entry)
       // {
       uint64_t curTime = getNano ();
@@ -120,17 +119,17 @@ tcp_wait_packet (tcp_hdr_t *hdr, uint32_t len, uint64_t start, uint8_t flag)
         {
           inq_e = TAILQ_FIRST (&tcp_inq);
           ret = inq_e->hdr;
-
           TAILQ_REMOVE (&tcp_inq, inq_e, entry);
           free (inq_e);
           /* Match packet */
           if (tcp_cmp_flag (ret, syn_check->hdr)
-              && ret->ack_num == syn_check->hdr->ack_num)
+              && ret->ack_num >= syn_check->hdr->ack_num)
             {
               if (!syn_check->retransmitted)
                 calculateERTT (syn_check->sent_time, curTime);
-              add_RTT (curTime, syn_check->sent_time);
+              add_RTT (syn_check->sent_time, curTime);
               TAILQ_REMOVE (&tcp_ckq, syn_check, entry);
+
               free (syn_check->hdr);
               free (syn_check);
 
@@ -145,7 +144,7 @@ tcp_wait_packet (tcp_hdr_t *hdr, uint32_t len, uint64_t start, uint8_t flag)
 
       if (syn_check->timeout <= curTime)
         {
-          // perror ("RETRANS");
+          perror ("RETRANS");
           TIMEOUT *= 2;
           syn_check->sent_time = curTime;
           syn_check->timeout = curTime + TIMEOUT;
