@@ -14,7 +14,7 @@
 // #include "protocol.h"
 #include "sendpacket.h"
 #include "handlepacket.h"
-
+#include <float.h>
 #include <arpa/inet.h>
 
 pthread_mutex_t mutex;
@@ -224,5 +224,31 @@ int main(int argc, char** argv) {
     
     free(receive_arp_header);
     close(sock_r);
+
+        FILE *file;
+    file = fopen("log", "r");
+
+    if (file == NULL) {
+        perror("Error opening file");
+        return -1;
+    }
+
+    double value, min = DBL_MAX, max = -DBL_MAX, sum = 0;
+    int count = 0;
+    while (fscanf(file, "%*d %lf", &value) == 1) {
+        if (value < min) min = value;
+        if (value > max) max = value;
+        sum += value;
+        count++;
+    }
+
+    fclose(file);
+
+    if (count > 0) {
+        double average = sum / count;
+        printf("Min: %f\nMax: %f\nAverage: %f\n", min, max, average);
+    } else {
+        printf("No data or invalid data format.\n");
+    }
     return 0;
 }
