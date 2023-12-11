@@ -67,20 +67,27 @@ typedef struct tcp_pseudo_hdr tcp_pseudo_hdr_t;
 #define SYN_FLAG (0 | (1U << 1))
 #define FIN_FLAG (0 | (1U))
 
+/* Generate a network encoded tcp header onto the *header variable */
 void tcp_gen_packet (tcp_hdr_t *header, uint8_t *data, uint16_t len,
                      uint32_t src_ip, uint32_t dst_ip, uint32_t src_port,
                      uint16_t dst_port, uint32_t seq_num, uint32_t ack_num,
                      uint8_t flags, uint16_t window);
+/* Helper to generate syn */
 void tcp_gen_syn (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
                   uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
                   uint16_t window);
+/* Helper to generate ack */
 void tcp_gen_ack (tcp_hdr_t *header, uint32_t src_ip, uint32_t dst_ip,
                   uint32_t src_port, uint16_t dst_port, uint32_t seq_num,
                   uint32_t ack_num, uint16_t window);
+
+/* Print function for tcp */
 void print_tcp_hdr (tcp_hdr_t *hdr);
 
 bool tcp_verify_packet (uint8_t *packet, uint16_t len, uint16_t tcp_off,
                         uint32_t src_ip, uint32_t dst_ip);
 uint16_t tcp_cksum (const void *_data, int len);
+
+/* Given two headers, check if their flags are he same. */
 bool tcp_cmp_flag (tcp_hdr_t *hdr1, tcp_hdr_t *hdr2);
 #endif /* -- TCP_PROTOCOL_H -- */

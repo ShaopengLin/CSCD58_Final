@@ -11,20 +11,21 @@
 #define DEFAULT_RTO SEC_TO_NS (3)
 #define ALPHA 0.9
 extern uint32_t NUM_BYTES;
-extern uint16_t SRC_PORT;
-extern uint32_t SRC_IP;
-extern uint16_t DST_PORT;
-extern uint32_t DST_IP;
-extern uint32_t SEQNUM;
-extern uint8_t DST_MAC[6];
-extern uint32_t RWND;
-extern uint32_t sent_size;
-extern uint32_t PKT_SIZE;
-extern char *VARIANT;
-extern uint64_t ERTT;
-extern uint64_t TIMEOUT;
+extern uint16_t SRC_PORT;  // Source port global
+extern uint32_t SRC_IP;    // Source IP global
+extern uint16_t DST_PORT;  // Destination port global
+extern uint32_t DST_IP;    // Destination IP global
+extern uint32_t SEQNUM;    // Sequence number global
+extern uint8_t DST_MAC[6]; // Destination mac address
+extern uint32_t RWND;      // Reciever window size
+extern uint32_t sent_size; // sent_size
+extern uint32_t PKT_SIZE;  // Packet size global
+extern char *VARIANT;      // VARIANT Global
+extern uint64_t ERTT;      // Estimated RTT Global
+extern uint64_t TIMEOUT;   // RTO GLobal
 extern uint64_t TESTING_PERIOD;
 
+/* Recieving packet timeout */
 struct tcp_packet_entry
 {
   TAILQ_ENTRY (tcp_packet_entry) entry;
@@ -67,6 +68,7 @@ extern struct tcp_sq tcp_sdq;
 extern pthread_mutex_t inq_lock;
 extern pthread_cond_t inq_cond;
 
+/*  */
 void *tcp_check_timeout ();
 void handle_tcp (tcp_hdr_t *hdr);
 

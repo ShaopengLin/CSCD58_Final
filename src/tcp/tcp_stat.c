@@ -33,6 +33,7 @@ print_result ()
   FILE *fp;
   fp = fopen ("tcprtt.txt", "w");
 
+  /* Calculate RTT stats and write the entries to file for graphing */
   tcp_rtt_entry_t *rtt_e = NULL;
   int rtt_count = 1;
   long double rtt_avg = 0;
@@ -49,6 +50,7 @@ print_result ()
   close (fp);
   rtt_avg = rtt_avg / (rtt_count - 1);
 
+  /* Calculate bandwidth */
   tcp_bandwidth_entry_t *bw_e = NULL;
   long double bw = 0;
   int bandwidth_count = 0;
@@ -59,13 +61,15 @@ print_result ()
   }
   bw = bw / bandwidth_count;
 
+  /* Calculate and print congestion window to the file */
   tcp_congest_entry_t *cwnd_e = NULL;
   int cwnd_count = 1;
 
   fp = fopen ("tcpcong.txt", "w");
   TAILQ_FOREACH (cwnd_e, &tcp_congQ, entry)
   {
-    fprintf (fp, "%d %u\n", cwnd_count, cwnd_e->cwnd / 1000);
+    fprintf (fp, "%d %u\n", cwnd_count,
+             cwnd_e->cwnd / 1000); // Scale down for better graph
     cwnd_count++;
   }
   printf ("***** \n");
@@ -75,7 +79,7 @@ print_result ()
   printf ("***** Bandwidth Estimate: %Lf Kbits/s\n", bw);
   printf (
       "***** Sliding Window Size Best Estimate Based on Bandwidth: %Lf byte\n",
-      (rtt_avg / 1000) * (bw * 1000) / 8);
+      (rtt_avg / 1000) * (bw * 1000) / 8); // Algorithm for window size
   printf ("***** \n");
   printf ("*******************************\n");
   close (fp);
@@ -88,11 +92,15 @@ printSWFF (uint32_t ack_num)
   printf ("\n***** STOP WHEN BANDWIDTH NO LONGER INCREASE\n");
   long double best_band = 0;
   int best_band_size = 1;
+
+  /* Runs the sliding window algorithm until we see decrease in performance */
   for (int i = 1; i < RWND / PKT_SIZE; i += 5)
     {
       printf ("\n***** INCREASING WND TO: %u byte\n", i * PKT_SIZE);
       TESTING_PERIOD = SEC_TO_NS (3);
       tcp_send_sliding_window_fixed (i, ack_num);
+
+      /* Calculate bandwidth and remove all the records used */
       tcp_bandwidth_entry_t *bw_e = NULL;
       long double bw = 0;
       int bandwidth_count = 0;
@@ -116,6 +124,8 @@ printSWFF (uint32_t ack_num)
           TAILQ_REMOVE (&tcp_rttQ, rtt_e, entry);
           free (rtt_e);
         }
+
+      /* Stop if performance dropped */
       bw = bw / bandwidth_count;
       if (best_band != 0 && best_band > bw)
         {
@@ -134,6 +144,8 @@ printSWFF (uint32_t ack_num)
   printf ("\n***** Best Bandwidth: %Lf\n", best_band);
 
   printf ("\n***** RUNNING RESULT WITH WINDOW: %u\n", best_band_size);
+
+  /* Run on the assumede optimal space */
   TESTING_PERIOD = SEC_TO_NS (5);
   tcp_send_sliding_window_fixed (best_band, ack_num);
 }

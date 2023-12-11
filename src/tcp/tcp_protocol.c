@@ -32,10 +32,13 @@ tcp_gen_packet (tcp_hdr_t *header, uint8_t *data, uint16_t len,
   header->ack_num = htonl (ack_num);
 
   header->doffset = 5;
+
+  /* Need to assign at exact offset */
   *(((uint8_t *)header) + FLAG_OFS) = flags;
 
   header->window = htons (window);
 
+  /* Generate pseudo header for the TCP checksum */
   tcp_pseudo_hdr_t p_hdr;
   p_hdr.src = src_ip;
   p_hdr.dst = dst_ip;
