@@ -22,11 +22,13 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-
+    #if the mode is TCP, run tcp executatble
     if args.mode == 'TCP':
         command = ['./LAN_SPEED', str(args.variant), str(args.mss), str(args.packsize),
                    str(args.ip), str(args.srcport), str(args.destport),
                    str(args.period), str(args.window)]
+        
+    #if the mode is IP, run ip executable
     elif args.mode == 'IP':
         command = ['./PING', "-c", str(args.num_packets), "-i", str(args.interval), "-s", str(args.packet_size), "-ip", str(args.ip)]
 
@@ -34,8 +36,13 @@ if __name__ == '__main__':
 
     # Plotting
     if args.mode == 'TCP':
-        plot_command = ['python3', 'plottcp.py']
+        #only SWCC variant in tcp has conjection window graph
+        if args.variant == 'SWCC':
+            plot_command = ['python3', 'plottcp.py']
+        else:
+            plot_command = ['python3', 'plotTcpWithoutCongestionWindow.py']
     elif args.mode == 'IP':
         plot_command = ['python3', 'plotPing.py']
+    
         
     subprocess.run(plot_command)

@@ -19,7 +19,6 @@ data = np.loadtxt("tcpcong.txt", delimiter=' ')
 x = data[:2000, 0]
 y = data[:2000, 1]
 
-plt.ylim(None, 10) 
 plt.plot(x,y)
 plt.title("TCP conjestion graph")
 plt.xlabel("first 2000 packet")
