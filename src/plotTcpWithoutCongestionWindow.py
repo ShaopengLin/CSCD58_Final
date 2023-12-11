@@ -10,9 +10,8 @@ plt.plot(x,y)
 plt.title("TCP rtt graph")
 plt.xlabel("packet number")
 plt.ylabel("round trip time in ms")
-plt.savefig("resultRttforRcp.png")
+plt.savefig("resultRttforTcp.png")
 
 
 
 plt.show()
-

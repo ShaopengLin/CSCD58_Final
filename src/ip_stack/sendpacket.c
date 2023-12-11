@@ -39,32 +39,33 @@ initTCPSocket ()
 char *
 find_active_interface ()
 {
-  struct ifaddrs *ifaddr, *ifa;
-  int family, s;
+  struct ifaddrs *head, *current;
+  int family;
   char *interface_name = NULL;
 
-  if (getifaddrs (&ifaddr) == -1)
+  if (getifaddrs (&head) == -1)
     {
       perror ("getifaddrs");
       return NULL;
     }
-  for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
+  //loop throught the interfaces to see if the interface is usable
+  for (current = head; current != NULL; current = current->ifa_next)
     {
-      if (ifa->ifa_addr == NULL)
+      if (current->ifa_addr == NULL)
         continue;
 
-      family = ifa->ifa_addr->sa_family;
+      family = current->ifa_addr->sa_family;
 
       // Check interfaces which is up and not a loopback
       if ((family == AF_INET || family == AF_INET6)
-          && (ifa->ifa_flags & IFF_UP) && !(ifa->ifa_flags & IFF_LOOPBACK))
+          && (current->ifa_flags & IFF_UP) && !(current->ifa_flags & IFF_LOOPBACK))
         {
-          interface_name = strdup (ifa->ifa_name);
+          interface_name = strdup (current->ifa_name);
           break;
         }
     }
 
-  freeifaddrs (ifaddr);
+  freeifaddrs (head);
   return interface_name;
 }
 
@@ -166,20 +167,21 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
 {
   uint8_t mac[6];
   uint32_t ip;
+  //find current interface
   char *iface = find_active_interface ();
-  get_mac_ip (iface, mac, &ip); // Corrected to pass the address of ip
-  // int sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
-  // if (sockfd < 0)
-  //   {
-  //     perror ("the socket fails to be created");
-  //   }
+  //get the interface mac address and ip
+  get_mac_ip (iface, mac, &ip);
+
+  //create ethernet header
   struct eth_header *eth = malloc (sizeof (struct eth_header));
   create_eth_header (eth, mac, dest_mac, ether_ip);
 
+  //create ip header
   struct ip_header *iph = malloc (sizeof (struct ip_header));
   create_ip_header (iph, ip, dest_ip, IPPROTO_TCP, 20 + tcpTotalLen);
   iph->checksum = cksum (iph, 20);
 
+  //put all headers into the buffer
   uint8_t *buffer = malloc (sizeof (struct eth_header)
                             + sizeof (struct ip_header) + tcpTotalLen);
   memcpy (buffer, eth, sizeof (struct eth_header));
@@ -188,11 +190,12 @@ warpHeaderAndSendTcp (uint8_t *tcpbuff, int tcpTotalLen, uint32_t *dest_ip,
           tcpbuff, tcpTotalLen);
   memcpy (socket_address.sll_addr, eth->destination, ETH_ALEN);
 
-  // Sending
-  ssize_t bytes_sent = sendto (
-      sockfd, buffer,
-      sizeof (struct eth_header) + sizeof (struct ip_header) + tcpTotalLen, 0,
+  //send using global socket
+  ssize_t bytes_sent = sendto (sockfd, buffer, sizeof (struct eth_header) + sizeof (struct ip_header) + tcpTotalLen, 0,
       (struct sockaddr *)&socket_address, sizeof (socket_address));
+  if(bytes_sent<0){
+    perror("error in sending tcp packets");
+  }
   free (buffer);
   free (eth);
   free (iph);

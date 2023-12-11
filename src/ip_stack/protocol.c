@@ -36,10 +36,7 @@ create_ip_header (struct ip_header *header, uint32_t src_addr,
   header->protocol = protocol;
   header->saddr = src_addr;
   header->daddr = dest_addr;
-  // /*get checksum*/
   header->checksum = 0;
-  // header->checksum = cksum(header, 20+sizeof(struct icmp_header));
-  // header->checksum = ip_checksum(header, header->ihl * 4);
 }
 
 void create_icmp_echo_header(struct icmp_echo *header,int size){
