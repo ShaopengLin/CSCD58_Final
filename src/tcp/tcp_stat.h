@@ -37,6 +37,7 @@ extern struct tcp_cong_q tcp_congQ;
 void add_RTT (uint64_t start, uint64_t end);
 void add_BW (long double bandwidth);
 void add_CWND (uint32_t cwnd);
+void printSWFF ();
 
 void print_result ();
 #endif /* -- TCP_STATS_H -- */

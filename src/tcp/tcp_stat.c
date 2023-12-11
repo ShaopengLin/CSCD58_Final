@@ -1,4 +1,5 @@
 #include "tcp_stat.h"
+#include "tcp_op.h"
 #include <unistd.h>
 void
 add_RTT (uint64_t start, uint64_t end)
@@ -64,7 +65,7 @@ print_result ()
   fp = fopen ("tcpcong.txt", "w");
   TAILQ_FOREACH (cwnd_e, &tcp_congQ, entry)
   {
-    fprintf (fp, "%d %u\n", cwnd_count, cwnd_e->cwnd);
+    fprintf (fp, "%d %u\n", cwnd_count, cwnd_e->cwnd / 1000);
     cwnd_count++;
   }
   printf ("***** \n");
@@ -78,4 +79,61 @@ print_result ()
   printf ("***** \n");
   printf ("*******************************\n");
   close (fp);
+}
+
+void
+printSWFF (uint32_t ack_num)
+{
+  printf ("***** FIXED WINDOW FINDING OPTIMAL WND\n");
+  printf ("***** STOP WHEN BANDWIDTH NO LONGER INCREASE\n");
+  long double best_band = 0;
+  int best_band_size = 1;
+  for (int i = 1; i < RWND / PKT_SIZE; i += 5)
+    {
+      printf ("\n***** INCREASING WND TO: %u byte\n", i * PKT_SIZE);
+      TESTING_PERIOD = SEC_TO_NS (3);
+      tcp_send_sliding_window_fixed (i, ack_num);
+      tcp_bandwidth_entry_t *bw_e = NULL;
+      long double bw = 0;
+      int bandwidth_count = 0;
+      while (!TAILQ_EMPTY (&tcp_bwQ))
+        {
+          bw_e = TAILQ_FIRST (&tcp_bwQ);
+          bw += bw_e->bw;
+          bandwidth_count++;
+          TAILQ_REMOVE (&tcp_bwQ, bw_e, entry);
+          free (bw_e);
+        }
+      while (!TAILQ_EMPTY (&tcp_congQ))
+        {
+          tcp_congest_entry_t *cong_e = TAILQ_FIRST (&tcp_congQ);
+          TAILQ_REMOVE (&tcp_congQ, cong_e, entry);
+          free (cong_e);
+        }
+      while (!TAILQ_EMPTY (&tcp_rttQ))
+        {
+          tcp_rtt_entry_t *rtt_e = TAILQ_FIRST (&tcp_rttQ);
+          TAILQ_REMOVE (&tcp_rttQ, rtt_e, entry);
+          free (rtt_e);
+        }
+      bw = bw / bandwidth_count;
+      if (best_band != 0 && best_band > bw)
+        {
+          printf ("\n***** BW vs BEST Bandwidth: %Lf,%Lf \n", bw, best_band);
+          break;
+        }
+
+      if (best_band < bw)
+        {
+          best_band = bw;
+          best_band_size = i;
+        }
+
+      printf ("\n***** BW vs BEST Bandwidth: %Lf,%Lf \n", bw, best_band);
+    }
+  printf ("\n***** Best Bandwidth: %Lf\n", best_band);
+
+  printf ("\n***** RUNNING RESULT WITH WINDOW: %Lf\n", best_band_size);
+  TESTING_PERIOD = SEC_TO_NS (5);
+  tcp_send_sliding_window_fixed (best_band, ack_num);
 }

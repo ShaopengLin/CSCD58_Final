@@ -137,40 +137,7 @@ main (int argc, char **argv)
   else if (strcmp (VARIANT, "SWCC") == 0)
     tcp_send_sliding_window_slowS_fastR (ack_num);
   else if (strcmp (VARIANT, "SWF") == 0)
-    {
-      char str[100];
-      long double best_band = 0;
-      for (int i = 1; i < RWND / PKT_SIZE; i += 5)
-        {
-          sprintf (str, "%d", i);
-          perror (str);
-          TESTING_PERIOD = SEC_TO_NS (3);
-          tcp_send_sliding_window_fixed (i, ack_num);
-          tcp_bandwidth_entry_t *bw_e = NULL;
-          long double bw = 0;
-          int bandwidth_count = 0;
-          while (!TAILQ_EMPTY (&tcp_bwQ))
-            {
-              bw_e = TAILQ_FIRST (&tcp_bwQ);
-              bw += bw_e->bw;
-              bandwidth_count++;
-              TAILQ_REMOVE (&tcp_bwQ, bw_e, entry);
-              free (bw_e);
-            }
-          bw = bw / bandwidth_count;
-          if (best_band != 0 && best_band > bw)
-            {
-              best_band = bw;
-              break;
-            }
-
-          best_band = best_band > bw ? best_band : bw;
-
-          printf ("BW vs BEST Bandwidth: %Lf,%Lf \n", bw, best_band);
-        }
-      printf ("Best Bandwidth: %Lf\n", best_band);
-    }
-
+    printSWFF (ack_num);
   else
     printf ("Invalid Variant %s", VARIANT);
   tcp_teardown (ack_num);

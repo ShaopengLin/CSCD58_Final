@@ -9,11 +9,10 @@ if __name__ == '__main__':
     #TCP customization command line argument
     parser.add_argument('--srcport', type=str, help='source port')
     parser.add_argument('--destport', type=str, help='destination port')
-    parser.add_argument('--mss', type=int, help='MSS size', default=10000)
+    parser.add_argument('--mss', type=int, help='(NOT used, setting this will do nothing, SORRY) MSS size', default=10000)
     parser.add_argument('--variant', choices=['SAW', 'SWF', 'SWCC'], help='TCP Variant', default="SAW")
     parser.add_argument('--packsize', type=int, help='Packet size', default=1460)
     parser.add_argument('--period', type=int, help='Testing period', default=10)
-    parser.add_argument('--window', type=int, help='maximum congestion window size', default=65535)
     
     #IP customized command line argument
     parser.add_argument('--packet_size', type=int, help='Packet size', default=50)
@@ -26,7 +25,7 @@ if __name__ == '__main__':
     if args.mode == 'TCP':
         command = ['./LAN_SPEED', str(args.variant), str(args.mss), str(args.packsize),
                    str(args.ip), str(args.srcport), str(args.destport),
-                   str(args.period), str(args.window)]
+                   str(args.period)]
         
     #if the mode is IP, run ip executable
     elif args.mode == 'IP':
