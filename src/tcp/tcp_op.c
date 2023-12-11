@@ -83,7 +83,6 @@ tcp_handshake ()
   RWND = ntohs (synack_hdr->window);
   PKT_SIZE = RWND < PKT_SIZE ? RWND : PKT_SIZE;
 
-  printf ("\nWINDOW: %u\n", RWND);
   free (synack_hdr);
 
   /* Send TCP ACKs */

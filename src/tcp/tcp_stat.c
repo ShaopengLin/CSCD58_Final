@@ -84,8 +84,8 @@ print_result ()
 void
 printSWFF (uint32_t ack_num)
 {
-  printf ("***** FIXED WINDOW FINDING OPTIMAL WND\n");
-  printf ("***** STOP WHEN BANDWIDTH NO LONGER INCREASE\n");
+  printf ("\n***** FIXED WINDOW FINDING OPTIMAL WND\n");
+  printf ("\n***** STOP WHEN BANDWIDTH NO LONGER INCREASE\n");
   long double best_band = 0;
   int best_band_size = 1;
   for (int i = 1; i < RWND / PKT_SIZE; i += 5)
@@ -133,7 +133,16 @@ printSWFF (uint32_t ack_num)
     }
   printf ("\n***** Best Bandwidth: %Lf\n", best_band);
 
-  printf ("\n***** RUNNING RESULT WITH WINDOW: %Lf\n", best_band_size);
+  printf ("\n***** RUNNING RESULT WITH WINDOW: %u\n", best_band_size);
   TESTING_PERIOD = SEC_TO_NS (5);
   tcp_send_sliding_window_fixed (best_band, ack_num);
+}
+
+void
+printDescription ()
+{
+  printf ("\n***** Reciever Window Size %u\n", RWND);
+  printf ("\n***** Packet Size %u \n", PKT_SIZE);
+  printf ("\n***** Source Port %u \n", SRC_PORT);
+  printf ("\n***** Destination Port %u \n", DST_PORT);
 }

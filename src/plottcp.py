@@ -10,7 +10,7 @@ plt.plot(x,y)
 plt.title("TCP rtt graph")
 plt.xlabel("packet number")
 plt.ylabel("round trip time in ms")
-plt.savefig("resultRttforRcp.png")
+plt.savefig("resultRttforTcp.png")
 
 #plot for conjestion window graph
 plt.figure(figsize=(20, 10))
@@ -20,7 +20,7 @@ x = data[:2000, 0]
 y = data[:2000, 1]
 
 plt.plot(x,y)
-plt.title("TCP conjestion graph")
+plt.title("TCP congestion graph")
 plt.xlabel("first 2000 packet")
 plt.ylabel("congestion window size in kilo byte")
 plt.savefig("resultCongestionforTcp.png")

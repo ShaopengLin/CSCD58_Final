@@ -126,18 +126,33 @@ main (int argc, char **argv)
     {
       sleep (1);
     }
-  perror ("ARP packet recieved");
+
+  printf ("\n***** TCP Analytics *****\n");
+  printf ("\n***** ARP packet recieved\n");
   memcpy (DST_MAC, receive_arp_header->sha, 6);
-  perror ("Handshaking");
+  printf ("\n***** Handshaking\n");
   uint32_t ack_num = tcp_handshake ();
-  printf ("***** TCP Analytics *****\n");
-  printf ("***** \n");
+
+  printDescription ();
+  printf ("\n***** Hanshake Complete\n");
   if (strcmp (VARIANT, "SAW") == 0)
-    tcp_stop_and_wait (ack_num);
+    {
+      printf ("\n***** Running Variant Stop & Wait...\n");
+      tcp_stop_and_wait (ack_num);
+    }
   else if (strcmp (VARIANT, "SWCC") == 0)
-    tcp_send_sliding_window_slowS_fastR (ack_num);
+    {
+      printf (
+          "\n***** Running Variant Congestion Control Sliding Window...\n");
+      tcp_send_sliding_window_slowS_fastR (ack_num);
+    }
+
   else if (strcmp (VARIANT, "SWF") == 0)
-    printSWFF (ack_num);
+    {
+      printf ("\n***** Running Variant Fixed Size Sliding Window...\n");
+      printSWFF (ack_num);
+    }
+
   else
     printf ("Invalid Variant %s", VARIANT);
   tcp_teardown (ack_num);
